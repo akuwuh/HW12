@@ -4,13 +4,14 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, Sparkles, Upload, Image as ImageIcon, Box, Boxes, X } from "lucide-react";
+import { ArrowRight, Sparkles, Upload, Image as ImageIcon, Box, Boxes, X, Loader2 } from "lucide-react";
 
 export default function Home() {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [pathLengths, setPathLengths] = useState<number[]>([]);
   const pathRefs = useRef<(SVGPathElement | null)[]>([]);
   const [images, setImages] = useState<string[]>([]);
@@ -28,9 +29,32 @@ export default function Home() {
     }
   }, []);
 
-  const handleStart = () => {
+  const handleStart = async () => {
     if (!prompt.trim()) return;
-    router.push("/product");
+    
+    setIsGenerating(true);
+
+    try {
+      // Mock API call to backend
+      // Using a minimum delay to show the animation
+      const apiCall = fetch("http://localhost:8000/product/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, images }),
+      }).catch(e => {
+        console.log("Mock API call failed (expected if backend not running):", e);
+        return null;
+      });
+      
+      const delay = new Promise(resolve => setTimeout(resolve, 2000));
+      
+      await Promise.all([apiCall, delay]);
+      
+      router.push("/product");
+    } catch (error) {
+      console.error("Generation failed:", error);
+      setIsGenerating(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -101,10 +125,24 @@ export default function Home() {
   return (
     <div className="relative flex flex-col items-center justify-center h-full p-4 md:p-8 max-w-4xl mx-auto w-full overflow-hidden">
       
+      {/* Loading Overlay */}
+      {isGenerating && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm transition-all duration-500">
+          <div className="flex flex-col items-center space-y-4 animate-in fade-in zoom-in duration-300">
+            <div className="relative">
+              <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl animate-pulse" />
+              <Loader2 className="w-16 h-16 animate-spin text-primary relative z-10" />
+            </div>
+            <h2 className="text-2xl font-bold tracking-tight animate-pulse">Generating your packaging...</h2>
+            <p className="text-muted-foreground">AI is visualizing your idea</p>
+          </div>
+        </div>
+      )}
+
       {/* Background Logo Vector Animation */}
       <div className={`
         absolute inset-0 flex items-center justify-center z-0 pointer-events-none
-        transition-opacity duration-1000 ease-out delay-100
+        transition-opacity duration-900 ease-out delay-100
         ${isLoaded ? "opacity-100" : "opacity-0"}
       `}>
         <svg 
@@ -124,7 +162,7 @@ export default function Home() {
               style={{
                 strokeDasharray: pathLengths[i] || 0,
                 strokeDashoffset: isLoaded ? 0 : (pathLengths[i] || 0),
-                transition: isLoaded ? "stroke-dashoffset 0.8s cubic-bezier(0.2, 0, 0.1, 1) 0.2s" : "none",
+                transition: isLoaded ? "stroke-dashoffset 0.6s cubic-bezier(0.2, 0, 0.1, 1) 0.1s" : "none",
                 opacity: pathLengths.length > 0 ? 1 : 0
               }}
             />
@@ -135,7 +173,7 @@ export default function Home() {
       {/* Top Logo */}
       <div className={`
         absolute top-8 left-8 z-10
-        transition-all duration-700 ease-out
+        transition-all duration-500 ease-out
         ${isLoaded ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-2"}
       `}>
         <div className="flex items-center gap-3">
@@ -149,7 +187,7 @@ export default function Home() {
         
         <div className={`
           space-y-2 text-center mb-4
-          transition-all duration-1000 ease-out delay-100
+          transition-all duration-700 ease-out
           ${isLoaded ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}
         `}>
           <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
@@ -163,7 +201,7 @@ export default function Home() {
         <div 
           className={`
             w-full max-w-2xl relative group
-            transition-all duration-1000 ease-out delay-200
+            transition-all duration-700 ease-out delay-100
             ${isLoaded ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}
           `}
         >
@@ -171,7 +209,7 @@ export default function Home() {
             relative bg-background rounded-xl border-2 border-black overflow-hidden cursor-pointer
             transition-all duration-300 ease-out
             ${isFocused 
-              ? "scale-[1.005] shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] -translate-y-[1px] -translate-x-[1px]" 
+              ? "scale-[1.005] shadow-[5px_5px_0px_0px_rgba(0,0,0,1)] -translate-y-px -translate-x-px" 
               : "scale-100 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"}
           `}
           onClick={() => document.querySelector<HTMLTextAreaElement>('textarea')?.focus()}
@@ -208,6 +246,7 @@ export default function Home() {
                 onPaste={handlePaste}
                 onFocus={() => setIsFocused(true)}
                 onBlur={() => setIsFocused(false)}
+                disabled={isGenerating}
                 className="min-h-[100px] w-full resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 p-0 text-lg bg-transparent shadow-none"
               />
             </div>
@@ -240,14 +279,14 @@ export default function Home() {
                   e.stopPropagation();
                   handleStart();
                 }}
-                disabled={!prompt.trim()}
+                disabled={!prompt.trim() || isGenerating}
                 className={`
                   transition-all duration-300 cursor-pointer
-                  ${prompt.trim() ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}
+                  ${prompt.trim() && !isGenerating ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}
                 `}
               >
-                Generate
-                <ArrowRight className="w-4 h-4 ml-2" />
+                {isGenerating ? "Generating..." : "Generate"}
+                {!isGenerating && <ArrowRight className="w-4 h-4 ml-2" />}
               </Button>
             </div>
           </div>
@@ -255,7 +294,7 @@ export default function Home() {
 
         <div className={`
           flex flex-wrap justify-center gap-3 mt-8 
-          transition-all duration-700 ease-out delay-300
+          transition-all duration-500 ease-out delay-200
           ${isLoaded ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}
         `}>
           {suggestions.map((suggestion, i) => (
