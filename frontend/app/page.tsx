@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowRight, Sparkles, Upload, Image as ImageIcon, Box, Boxes, X, Loader2 } from "lucide-react";
+import { ArrowRight, Sparkles, Upload, Image as ImageIcon, Box, Boxes, X } from "lucide-react";
 
 export default function Home() {
   const router = useRouter();
@@ -12,6 +12,7 @@ export default function Home() {
   const [isFocused, setIsFocused] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
   const [pathLengths, setPathLengths] = useState<number[]>([]);
   const pathRefs = useRef<(SVGPathElement | null)[]>([]);
   const [images, setImages] = useState<string[]>([]);
@@ -46,14 +47,20 @@ export default function Home() {
         return null;
       });
       
-      const delay = new Promise(resolve => setTimeout(resolve, 2000));
+      const delay = new Promise(resolve => setTimeout(resolve, 2500)); // Increased slightly to show off animation
       
       await Promise.all([apiCall, delay]);
       
-      router.push("/product");
+      setIsExiting(true);
+      // Wait for exit animation
+      setTimeout(() => {
+        router.push("/product");
+      }, 800);
+      
     } catch (error) {
       console.error("Generation failed:", error);
       setIsGenerating(false);
+      setIsExiting(false);
     }
   };
 
@@ -127,14 +134,216 @@ export default function Home() {
       
       {/* Loading Overlay */}
       {isGenerating && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm transition-all duration-500">
-          <div className="flex flex-col items-center space-y-4 animate-in fade-in zoom-in duration-300">
-            <div className="relative">
-              <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl animate-pulse" />
-              <Loader2 className="w-16 h-16 animate-spin text-primary relative z-10" />
+        <div 
+          className={`
+            fixed inset-0 z-50 flex flex-col items-center justify-center bg-background transition-all duration-700 cubic-bezier(0.76, 0, 0.24, 1)
+            ${isExiting ? "-translate-y-full" : "translate-y-0 opacity-100 animate-in fade-in zoom-in duration-700"}
+          `}
+        >
+          <div className="flex flex-col items-center justify-center w-full h-full space-y-8">
+            {/* Custom CSS Loader */}
+            <div className="relative flex items-center justify-center flex-col gap-8">
+              <div className="banter-loader">
+                <div className="banter-loader__box"></div>
+                <div className="banter-loader__box"></div>
+                <div className="banter-loader__box"></div>
+                <div className="banter-loader__box"></div>
+                <div className="banter-loader__box"></div>
+                <div className="banter-loader__box"></div>
+                <div className="banter-loader__box"></div>
+                <div className="banter-loader__box"></div>
+                <div className="banter-loader__box"></div>
+              </div>
+              <span className="text-foreground font-medium tracking-widest text-sm animate-pulse">GENERATING...</span>
+              <style jsx>{`
+                .banter-loader {
+                  position: relative;
+                  width: 72px;
+                  height: 72px;
+                  margin-bottom: 2rem;
+                }
+
+                .banter-loader__box {
+                  float: left;
+                  position: relative;
+                  width: 20px;
+                  height: 20px;
+                  margin-right: 6px;
+                }
+
+                .banter-loader__box:before {
+                  content: "";
+                  position: absolute;
+                  left: 0;
+                  top: 0;
+                  width: 100%;
+                  height: 100%;
+                  background: var(--foreground);
+                }
+
+                .banter-loader__box:nth-child(3n) {
+                  margin-right: 0;
+                  margin-bottom: 6px;
+                }
+
+                .banter-loader__box:nth-child(1):before,
+                .banter-loader__box:nth-child(4):before {
+                  margin-left: 26px;
+                }
+
+                .banter-loader__box:nth-child(3):before {
+                  margin-top: 52px;
+                }
+
+                .banter-loader__box:last-child {
+                  margin-bottom: 0;
+                }
+
+                @keyframes moveBox-1 {
+                  9.09% { transform: translate(-26px, 0); }
+                  18.18% { transform: translate(0px, 0); }
+                  27.27% { transform: translate(0px, 0); }
+                  36.36% { transform: translate(26px, 0); }
+                  45.45% { transform: translate(26px, 26px); }
+                  54.54% { transform: translate(26px, 26px); }
+                  63.63% { transform: translate(26px, 26px); }
+                  72.72% { transform: translate(26px, 0px); }
+                  81.81% { transform: translate(0px, 0px); }
+                  90.90% { transform: translate(-26px, 0px); }
+                  100% { transform: translate(0px, 0px); }
+                }
+
+                .banter-loader__box:nth-child(1) { animation: moveBox-1 4s infinite; }
+
+                @keyframes moveBox-2 {
+                  9.09% { transform: translate(0, 0); }
+                  18.18% { transform: translate(26px, 0); }
+                  27.27% { transform: translate(0px, 0); }
+                  36.36% { transform: translate(26px, 0); }
+                  45.45% { transform: translate(26px, 26px); }
+                  54.54% { transform: translate(26px, 26px); }
+                  63.63% { transform: translate(26px, 26px); }
+                  72.72% { transform: translate(26px, 26px); }
+                  81.81% { transform: translate(0px, 26px); }
+                  90.90% { transform: translate(0px, 26px); }
+                  100% { transform: translate(0px, 0px); }
+                }
+
+                .banter-loader__box:nth-child(2) { animation: moveBox-2 4s infinite; }
+
+                @keyframes moveBox-3 {
+                  9.09% { transform: translate(-26px, 0); }
+                  18.18% { transform: translate(-26px, 0); }
+                  27.27% { transform: translate(0px, 0); }
+                  36.36% { transform: translate(-26px, 0); }
+                  45.45% { transform: translate(-26px, 0); }
+                  54.54% { transform: translate(-26px, 0); }
+                  63.63% { transform: translate(-26px, 0); }
+                  72.72% { transform: translate(-26px, 0); }
+                  81.81% { transform: translate(-26px, -26px); }
+                  90.90% { transform: translate(0px, -26px); }
+                  100% { transform: translate(0px, 0px); }
+                }
+
+                .banter-loader__box:nth-child(3) { animation: moveBox-3 4s infinite; }
+
+                @keyframes moveBox-4 {
+                  9.09% { transform: translate(-26px, 0); }
+                  18.18% { transform: translate(-26px, 0); }
+                  27.27% { transform: translate(-26px, -26px); }
+                  36.36% { transform: translate(0px, -26px); }
+                  45.45% { transform: translate(0px, 0px); }
+                  54.54% { transform: translate(0px, -26px); }
+                  63.63% { transform: translate(0px, -26px); }
+                  72.72% { transform: translate(0px, -26px); }
+                  81.81% { transform: translate(-26px, -26px); }
+                  90.90% { transform: translate(-26px, 0px); }
+                  100% { transform: translate(0px, 0px); }
+                }
+
+                .banter-loader__box:nth-child(4) { animation: moveBox-4 4s infinite; }
+
+                @keyframes moveBox-5 {
+                  9.09% { transform: translate(0, 0); }
+                  18.18% { transform: translate(0, 0); }
+                  27.27% { transform: translate(0, 0); }
+                  36.36% { transform: translate(26px, 0); }
+                  45.45% { transform: translate(26px, 0); }
+                  54.54% { transform: translate(26px, 0); }
+                  63.63% { transform: translate(26px, 0); }
+                  72.72% { transform: translate(26px, 0); }
+                  81.81% { transform: translate(26px, -26px); }
+                  90.90% { transform: translate(0px, -26px); }
+                  100% { transform: translate(0px, 0px); }
+                }
+
+                .banter-loader__box:nth-child(5) { animation: moveBox-5 4s infinite; }
+
+                @keyframes moveBox-6 {
+                  9.09% { transform: translate(0, 0); }
+                  18.18% { transform: translate(-26px, 0); }
+                  27.27% { transform: translate(-26px, 0); }
+                  36.36% { transform: translate(0px, 0); }
+                  45.45% { transform: translate(0px, 0); }
+                  54.54% { transform: translate(0px, 0); }
+                  63.63% { transform: translate(0px, 0); }
+                  72.72% { transform: translate(0px, 26px); }
+                  81.81% { transform: translate(-26px, 26px); }
+                  90.90% { transform: translate(-26px, 0px); }
+                  100% { transform: translate(0px, 0px); }
+                }
+
+                .banter-loader__box:nth-child(6) { animation: moveBox-6 4s infinite; }
+
+                @keyframes moveBox-7 {
+                  9.09% { transform: translate(26px, 0); }
+                  18.18% { transform: translate(26px, 0); }
+                  27.27% { transform: translate(26px, 0); }
+                  36.36% { transform: translate(0px, 0); }
+                  45.45% { transform: translate(0px, -26px); }
+                  54.54% { transform: translate(26px, -26px); }
+                  63.63% { transform: translate(0px, -26px); }
+                  72.72% { transform: translate(0px, -26px); }
+                  81.81% { transform: translate(0px, 0px); }
+                  90.90% { transform: translate(26px, 0px); }
+                  100% { transform: translate(0px, 0px); }
+                }
+
+                .banter-loader__box:nth-child(7) { animation: moveBox-7 4s infinite; }
+
+                @keyframes moveBox-8 {
+                  9.09% { transform: translate(0, 0); }
+                  18.18% { transform: translate(-26px, 0); }
+                  27.27% { transform: translate(-26px, -26px); }
+                  36.36% { transform: translate(0px, -26px); }
+                  45.45% { transform: translate(0px, -26px); }
+                  54.54% { transform: translate(0px, -26px); }
+                  63.63% { transform: translate(0px, -26px); }
+                  72.72% { transform: translate(0px, -26px); }
+                  81.81% { transform: translate(26px, -26px); }
+                  90.90% { transform: translate(26px, 0px); }
+                  100% { transform: translate(0px, 0px); }
+                }
+
+                .banter-loader__box:nth-child(8) { animation: moveBox-8 4s infinite; }
+
+                @keyframes moveBox-9 {
+                  9.09% { transform: translate(-26px, 0); }
+                  18.18% { transform: translate(-26px, 0); }
+                  27.27% { transform: translate(0px, 0); }
+                  36.36% { transform: translate(-26px, 0); }
+                  45.45% { transform: translate(0px, 0); }
+                  54.54% { transform: translate(0px, 0); }
+                  63.63% { transform: translate(-26px, 0); }
+                  72.72% { transform: translate(-26px, 0); }
+                  81.81% { transform: translate(-52px, 0); }
+                  90.90% { transform: translate(-26px, 0); }
+                  100% { transform: translate(0px, 0); }
+                }
+
+                .banter-loader__box:nth-child(9) { animation: moveBox-9 4s infinite; }
+              `}</style>
             </div>
-            <h2 className="text-2xl font-bold tracking-tight animate-pulse">Generating your packaging...</h2>
-            <p className="text-muted-foreground">AI is visualizing your idea</p>
           </div>
         </div>
       )}

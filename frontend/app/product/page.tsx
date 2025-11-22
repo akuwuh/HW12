@@ -23,6 +23,11 @@ export default function ProductPage() {
   const [displayMode, setDisplayMode] = useState<"solid" | "wireframe">("solid");
   const [zoomAction, setZoomAction] = useState<"in" | "out" | null>(null);
   const [autoRotate, setAutoRotate] = useState(true);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Reset zoom action after it's been processed
   useEffect(() => {
@@ -42,7 +47,7 @@ export default function ProductPage() {
   ];
 
   return (
-    <div className="h-screen bg-background flex flex-col overflow-hidden">
+    <div className={`h-screen bg-background flex flex-col overflow-hidden transition-opacity duration-700 ease-in-out ${isMounted ? 'opacity-100' : 'opacity-0'}`}>
       <div className="flex-1 flex overflow-hidden">
         {/* 3D Viewer */}
         <div className="flex-1 relative bg-muted/30">
