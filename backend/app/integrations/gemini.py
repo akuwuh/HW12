@@ -4,6 +4,8 @@ import logging
 import base64
 from typing import Dict, Any, List, Optional
 
+from pydantic import ValidationError
+
 import google.generativeai as genai
 from google.genai import types
 from google.genai import Client as GenaiClient
@@ -219,7 +221,10 @@ class GeminiImageService:
         if self.image_size:
             image_config_kwargs["image_size"] = self.image_size
         if image_config_kwargs:
-            config_kwargs["image_config"] = types.ImageConfig(**image_config_kwargs)
+            try:
+                config_kwargs["image_config"] = types.ImageConfig(**image_config_kwargs)
+            except (AttributeError, ValidationError, TypeError) as exc:
+                logger.warning("Gemini image config not applied: %s", exc)
         response = self.client.models.generate_content(
             model=self.asset_model,
             contents=contents,

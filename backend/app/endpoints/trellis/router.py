@@ -1,16 +1,16 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import List, Dict, Any
+
 from app.integrations.trellis import trellis_service, TrellisOutput
 from app.core.redis import redis_service
 import logging
 import traceback
-import asyncio
-import json
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/trellis", tags=["trellis"])
+STATUS_KEY = "trellis_status:current"
 
 class Generate3DRequest(BaseModel):
     images: List[str]
@@ -46,7 +46,15 @@ async def generate_3d_asset(request: Generate3DRequest):
         logger.info("TRELLIS REQUEST PARAMETERS:")
         logger.info(f"  images: {request.images}")
         logger.info("=" * 80)
-        
+
+        _set_status(
+            {
+                "status": "processing",
+                "progress": 5,
+                "message": "Submitting job to Trellis…",
+            }
+        )
+
         output = trellis_service.generate_3d_asset(
             images=request.images,
             seed=request.seed,
@@ -64,110 +72,42 @@ async def generate_3d_asset(request: Generate3DRequest):
             slat_guidance_strength=request.slat_guidance_strength
         )
         logger.info("Successfully generated 3D asset")
+        _set_status(
+            {
+                "status": "complete",
+                "progress": 100,
+                "message": "3D model generated successfully!",
+                "model_file": output.get("model_file"),
+                "color_video": output.get("color_video"),
+                "no_background_images": output.get("no_background_images", []),
+            }
+        )
         return output
     except Exception as e:
         logger.error(f"Error generating 3D asset: {str(e)}")
         logger.error(traceback.format_exc())
+        _set_status(
+            {
+                "status": "error",
+                "progress": 0,
+                "message": f"Generation failed: {str(e)}",
+            }
+        )
         raise HTTPException(status_code=500, detail=f"Failed to generate 3D asset: {str(e)}")
 
 
-@router.post("/generate-async/{thread_id}")
-async def generate_3d_async(thread_id: str, request: Generate3DRequest):
+@router.get("/status")
+async def get_generation_status():
     """
-    Start 3D generation in the background (non-blocking).
-    Returns immediately with a job ID. Check status with /status/{thread_id}.
+    Retrieve the status of the most recent Trellis generation job.
     """
-    try:
-        # Store initial status
-        status_key = f"trellis_status:{thread_id}"
-        redis_service.set(status_key, json.dumps({
-            "status": "processing",
-            "progress": 0,
-            "message": "Starting 3D model generation..."
-        }), ex=3600)
-        
-        logger.info(f"[Trellis] Starting async generation for thread {thread_id}")
-        
-        # Run generation in background
-        asyncio.create_task(_generate_3d_background(thread_id, request))
-        
-        return {
-            "status": "processing",
-            "thread_id": thread_id,
-            "message": "3D generation started in background"
-        }
-    except Exception as e:
-        logger.error(f"Error starting async 3D generation: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to start generation: {str(e)}")
+    status = redis_service.get_json(STATUS_KEY)
+    if not status:
+        return {"status": "idle", "progress": 0, "message": "No generation started"}
+    return status
 
 
-@router.get("/status/{thread_id}")
-async def get_generation_status(thread_id: str):
-    """
-    Check the status of a 3D generation job.
-    Returns: status, progress, model_file URL when complete
-    """
-    try:
-        status_key = f"trellis_status:{thread_id}"
-        status_data = redis_service.get(status_key)
-        
-        if not status_data:
-            raise HTTPException(status_code=404, detail="Generation job not found")
-        
-        return json.loads(status_data)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error fetching generation status: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch status: {str(e)}")
+def _set_status(payload: Dict[str, Any]) -> None:
+    redis_service.set_json(STATUS_KEY, payload, ex=3600)
 
 
-async def _generate_3d_background(thread_id: str, request: Generate3DRequest):
-    """Background task to generate 3D model"""
-    status_key = f"trellis_status:{thread_id}"
-    
-    try:
-        # Update progress
-        redis_service.set(status_key, json.dumps({
-            "status": "processing",
-            "progress": 25,
-            "message": "Generating 3D model with Trellis..."
-        }), ex=3600)
-        
-        # Generate 3D model (this is the slow part)
-        output = trellis_service.generate_3d_asset(
-            images=request.images,
-            seed=request.seed,
-            randomize_seed=request.randomize_seed,
-            texture_size=request.texture_size,
-            mesh_simplify=request.mesh_simplify,
-            generate_color=request.generate_color,
-            generate_normal=request.generate_normal,
-            generate_model=request.generate_model,
-            save_gaussian_ply=request.save_gaussian_ply,
-            return_no_background=request.return_no_background,
-            ss_sampling_steps=request.ss_sampling_steps,
-            ss_guidance_strength=request.ss_guidance_strength,
-            slat_sampling_steps=request.slat_sampling_steps,
-            slat_guidance_strength=request.slat_guidance_strength
-        )
-        
-        # Success - store result
-        redis_service.set(status_key, json.dumps({
-            "status": "complete",
-            "progress": 100,
-            "message": "3D model generated successfully!",
-            "model_file": output.get("model_file"),
-            "color_video": output.get("color_video"),
-            "no_background_images": output.get("no_background_images", [])
-        }), ex=7200)  # Keep for 2 hours
-        
-        logger.info(f"[Trellis] ✓ Background generation complete for {thread_id}")
-        
-    except Exception as e:
-        logger.error(f"[Trellis] ❌ Background generation failed for {thread_id}: {str(e)}")
-        redis_service.set(status_key, json.dumps({
-            "status": "error",
-            "progress": 0,
-            "message": f"Generation failed: {str(e)}"
-        }), ex=3600)

@@ -18,7 +18,11 @@ if str(ROOT) not in sys.path:
 from main import app
 from app.core.config import settings
 
-RUN_PRODUCT_E2E = os.getenv("RUN_PRODUCT_E2E") == "1"
+RUN_PRODUCT_E2E = (
+    os.getenv("RUN_PRODUCT_E2E")
+    or os.getenv("PYTEST_ADDOPTS") == "product-e2e"
+    or os.getenv("RUN_PRODUCT_E2E_TESTS")
+)
 ENV_MISSING = [
     name
     for name, value in [
@@ -35,8 +39,8 @@ ARTIFACT_ROOT.mkdir(exist_ok=True)
 pytestmark = pytest.mark.skipif(
     not RUN_PRODUCT_E2E or ENV_MISSING,
     reason=(
-        "Set RUN_PRODUCT_E2E=1 and configure GEMINI_API_KEY/REPLICATE_API_KEY "
-        "to run real create/edit integration tests"
+        "Set RUN_PRODUCT_E2E=1 (in env or pytest.ini) and configure GEMINI_API_KEY/"
+        "REPLICATE_API_KEY to run real create/edit integration tests"
     ),
 )
 

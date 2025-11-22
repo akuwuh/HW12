@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
+import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app.integrations.trellis import trellis_service
@@ -19,6 +22,10 @@ from app.models.product_state import (
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Create artifacts directory for debug outputs
+ARTIFACTS_DIR = Path(__file__).parent.parent.parent / "tests" / "artifacts"
+ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class ProductPipelineService:
@@ -71,6 +78,9 @@ class ProductPipelineService:
                 raise RuntimeError("Gemini image pipeline returned no images")
             state.images = images
             save_product_state(state)
+            
+            # Save Gemini images to artifacts for inspection
+            self._save_gemini_images(images, mode)
 
             state.mark_progress("generating_model", "Generating 3D model with Trellis")
             save_product_state(state)
@@ -141,6 +151,26 @@ class ProductPipelineService:
         payload.preview_image = status.preview_image or payload.preview_image
         payload.updated_at = status.updated_at
         save_product_status(payload)
+
+    def _save_gemini_images(self, images: List[str], mode: str) -> None:
+        """Save Gemini-generated images to artifacts for inspection."""
+        try:
+            run_dir = ARTIFACTS_DIR / f"gemini_{mode}_{int(time.time())}"
+            run_dir.mkdir(parents=True, exist_ok=True)
+            
+            for idx, img in enumerate(images, start=1):
+                if isinstance(img, str) and img.startswith("data:image"):
+                    try:
+                        header, b64_data = img.split(",", 1)
+                        mime = header.split(";")[0].split(":")[1] if ":" in header else "image/png"
+                        extension = mime.split("/")[-1] if "/" in mime else "png"
+                        dest = run_dir / f"gemini_view_{idx}.{extension}"
+                        dest.write_bytes(base64.b64decode(b64_data))
+                        logger.info(f"[product-pipeline] Saved Gemini image {idx} to {dest}")
+                    except Exception as exc:
+                        logger.warning(f"[product-pipeline] Failed to save Gemini image {idx}: {exc}")
+        except Exception as exc:
+            logger.warning(f"[product-pipeline] Failed to create artifacts dir: {exc}")
 
 
 product_pipeline_service = ProductPipelineService()
