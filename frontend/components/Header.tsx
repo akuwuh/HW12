@@ -6,6 +6,13 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Box, Package, Image as ImageIcon, Boxes, Edit } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Bungee } from "next/font/google";
+
+const bungee = Bungee({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-bungee",
+});
 
 export function Header() {
   const pathname = useTransitionPathname();
@@ -46,9 +53,10 @@ export function Header() {
           className="border-b-2 border-black shrink-0 bg-background z-50"
         >
           <div className="w-full px-4 py-3 flex items-center justify-between relative min-h-[72px]">
-            <div className="flex items-center gap-4 absolute left-4 top-1/2 -translate-y-1/2 z-10">
-              <Link href="/">
-                <Boxes className="w-12 h-12 cursor-pointer" />
+            <div className="flex items-center gap-3 absolute left-4 top-1/2 -translate-y-1/2 z-10">
+              <Link href="/" className="flex items-center gap-3">
+                <Boxes className="w-10 h-10 cursor-pointer" />
+                <span className={`text-3xl ${bungee.className} lowercase cursor-pointer`}>atelier</span>
               </Link>
             </div>
             <div className="absolute right-4 top-1/2 -translate-y-1/2 z-0 flex items-center gap-3">
