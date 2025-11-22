@@ -11,11 +11,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ArrowLeft, Upload, Sparkles, RotateCw, Download, ZoomIn, ZoomOut, Play, Pause, Settings, Sun, Warehouse, Eye, EyeOff, Package, Image, Box, Boxes } from "lucide-react";
+import { ArrowLeft, Upload, Sparkles, RotateCw, Download, ZoomIn, ZoomOut, Play, Pause, Settings, Sun, Warehouse, Eye, EyeOff, Edit, Image, ShoppingBag, Box, Square, Package, Boxes } from "lucide-react";
 import ModelViewer from "@/components/ModelViewer";
 import { AIChatPanel } from "@/components/AIChatPanel";
 
-export default function Home() {
+export default function Packaging() {
   const [currentModelUrl, setCurrentModelUrl] = useState<string>();
   const [selectedColor, setSelectedColor] = useState("#60a5fa");
   const [selectedTexture, setSelectedTexture] = useState("matte");
@@ -23,6 +23,8 @@ export default function Home() {
   const [displayMode, setDisplayMode] = useState<"solid" | "wireframe">("solid");
   const [zoomAction, setZoomAction] = useState<"in" | "out" | null>(null);
   const [autoRotate, setAutoRotate] = useState(true);
+  const [selectedPackageType, setSelectedPackageType] = useState<"bag" | "box" | null>(null);
+  const [hasWindow, setHasWindow] = useState(false);
 
   // Reset zoom action after it's been processed
   useEffect(() => {
@@ -50,15 +52,15 @@ export default function Home() {
             <Boxes className="w-12 h-12" />
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="pointer-events-none">
-              <Box className="w-4 h-4 mr-2" />
-              Product
-            </Button>
-            <Link href="/packaging">
+            <Link href="/">
               <Button variant="outline" size="icon" className="h-8 w-8 transition-all duration-300 hover:scale-110 hover:bg-accent active:scale-95">
-                <Package className="w-4 h-4 transition-transform duration-300" />
+                <Edit className="w-4 h-4 transition-transform duration-300" />
               </Button>
             </Link>
+            <Button variant="outline" size="sm" className="pointer-events-none">
+              <Package className="w-4 h-4 mr-2" />
+              Packaging
+            </Button>
             <Link href="/final-view">
               <Button variant="outline" size="icon" className="h-8 w-8 transition-all duration-300 hover:scale-110 hover:bg-accent active:scale-95">
                 <Image className="w-4 h-4 transition-transform duration-300" />
@@ -135,7 +137,42 @@ export default function Home() {
               Chat
             </h2>
           </div>
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto p-4 flex flex-col">
+            {/* Package Type Selection */}
+            <div className="mb-4 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Package Type</p>
+              <div className="flex gap-2">
+                <Button
+                  variant={selectedPackageType === "bag" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedPackageType("bag")}
+                  className="flex-1"
+                >
+                  <ShoppingBag className="w-4 h-4 mr-2" />
+                  Bag
+                </Button>
+                <Button
+                  variant={selectedPackageType === "box" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setSelectedPackageType("box")}
+                  className="flex-1"
+                >
+                  <Box className="w-4 h-4 mr-2" />
+                  Box
+                </Button>
+              </div>
+              {selectedPackageType && (
+                <Button
+                  variant={hasWindow ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setHasWindow(!hasWindow)}
+                  className="w-full text-xs h-8"
+                >
+                  <Square className="w-3 h-3 mr-1.5" />
+                  Window
+                </Button>
+              )}
+            </div>
             <AIChatPanel />
           </div>
         </div>
@@ -143,3 +180,4 @@ export default function Home() {
     </div>
   );
 }
+
