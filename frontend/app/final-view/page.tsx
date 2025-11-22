@@ -34,7 +34,7 @@ export default function FinalView() {
             <Boxes className="w-12 h-12" />
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/">
+            <Link href="/product">
               <Button variant="outline" size="icon" className="h-8 w-8 transition-all duration-300 hover:scale-110 hover:bg-accent active:scale-95">
                 <Edit className="w-4 h-4 transition-transform duration-300" />
               </Button>
