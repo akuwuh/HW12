@@ -16,9 +16,34 @@ export default function Test3DPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Load the test model from public folder
-    setModelUrl("/test_model.glb");
-    setIsLoading(false);
+    const fetchLatestModel = async () => {
+      try {
+        setIsLoading(true);
+        const response = await fetch("http://localhost:8000/product");
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data: ProductState = await response.json();
+        
+        if (data.trellis_output?.model_file) {
+          setModelUrl(data.trellis_output.model_file);
+          setError(null);
+        } else if (data.status === "generating_model" || data.status === "generating_images") {
+          setError("Model is still generating. Please wait and refresh.");
+        } else {
+          setError("No 3D model found. Please run the test pipeline first.");
+        }
+      } catch (err) {
+        console.error("Error fetching model:", err);
+        setError(err instanceof Error ? err.message : "Failed to fetch model");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchLatestModel();
   }, []);
 
   return (
