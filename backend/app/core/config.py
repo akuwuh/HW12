@@ -6,7 +6,6 @@ class Settings(BaseSettings):
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
-    PRODUCT_STATE_TTL_SECONDS: int = 24 * 60 * 60
     
     # Gemini
     GEMINI_API_KEY: Optional[str] = None
@@ -15,10 +14,10 @@ class Settings(BaseSettings):
     GEMINI_TEMPERATURE: float = 0.7
     GEMINI_MAX_TOKENS: int = 2048
     GEMINI_MAX_RETRIES: int = 3
-    GEMINI_PRODUCT_IMAGE_API_URL: Optional[str] = None
-    GEMINI_PRODUCT_IMAGE_API_KEY: Optional[str] = None
-    GEMINI_PRODUCT_IMAGE_TIMEOUT: int = 45
-    GEMINI_PRODUCT_IMAGE_COUNT: int = 3
+    GEMINI_IMAGE_MODEL: str = "gemini-3-pro-image-preview"
+    GEMINI_THINKING_LEVEL: Optional[str] = None
+    GEMINI_IMAGE_SIZE: Optional[str] = "4K"
+    GEMINI_IMAGE_ASPECT_RATIO: Optional[str] = None
 
     class Config:
         env_file = ".env"

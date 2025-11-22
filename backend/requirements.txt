@@ -8,6 +8,5 @@ typing-extensions
 google-generativeai
 google-genai
 redis
-httpx
 pytest
 pytest-asyncio

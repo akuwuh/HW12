@@ -1,12 +1,8 @@
 import json
-import time
 import asyncio
 import logging
-import traceback
 import base64
-import os
-from typing import Dict, Any, List, Optional, Union
-from contextlib import asynccontextmanager
+from typing import Dict, Any, List, Optional
 
 import google.generativeai as genai
 from google.genai import types
@@ -14,7 +10,6 @@ from google.genai import Client as GenaiClient
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 from app.core.config import settings
-from app.core.redis import redis_service
 
 logger = logging.getLogger(__name__)
 
@@ -86,18 +81,9 @@ class GeminiChatService:
             raise GeminiError("Gemini API key not configured")
             
         max_retries = max_retries or settings.GEMINI_MAX_RETRIES
-        
-        # Use Flash model primarily for speed/cost
         model_name = self.flash_model
-        
-        generation_config = self._get_generation_config(task_type)
-        
-        if response_schema:
-            generation_config.update({
-                "response_mime_type": "application/json",
-                "response_schema": response_schema
-            })
-            
+        generation_config = self._build_generation_config(task_type, response_schema)
+
         for attempt in range(max_retries):
             try:
                 self.request_count += 1
@@ -108,26 +94,11 @@ class GeminiChatService:
                 )
                 
                 response = await model.generate_content_async(prompt)
-                
-                if response.text:
-                    if response_schema:
-                        try:
-                            return json.loads(response.text)
-                        except json.JSONDecodeError:
-                            logger.warning(f"JSON parse error on attempt {attempt + 1}")
-                            # Try to clean up markdown if present
-                            cleaned_text = response.text.strip()
-                            if cleaned_text.startswith("```"):
-                                lines = cleaned_text.split("\n")
-                                cleaned_text = "\n".join(lines[1:-1]) if len(lines) > 2 else cleaned_text
-                            try:
-                                return json.loads(cleaned_text)
-                            except:
-                                pass
-                    else:
-                        return {"text": response.text}
+                parsed = self._parse_response(response, response_schema)
+                if parsed is not None:
+                    return parsed
             
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 self.error_count += 1
                 logger.warning(f"Gemini attempt {attempt + 1} failed: {str(e)}")
                 if attempt == max_retries - 1:
@@ -136,9 +107,57 @@ class GeminiChatService:
                 
         return {"error": "Failed to generate content"}
 
+    def _build_generation_config(
+        self,
+        task_type: str,
+        response_schema: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        config = self._get_generation_config(task_type)
+        if response_schema:
+            config = {**config}
+            config.update(
+                {
+                    "response_mime_type": "application/json",
+                    "response_schema": response_schema,
+                }
+            )
+        return config
+
+    def _parse_response(
+        self,
+        response,
+        response_schema: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        if not response.text:
+            return None
+        if not response_schema:
+            return {"text": response.text}
+        return self._parse_structured_response(response.text)
+
+    def _parse_structured_response(self, text: str) -> Optional[Dict[str, Any]]:
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            cleaned = self._strip_markdown_fence(text)
+            if not cleaned or cleaned == text:
+                logger.warning("JSON parse error for Gemini response")
+            try:
+                return json.loads(cleaned)
+            except json.JSONDecodeError:
+                return None
+
+    @staticmethod
+    def _strip_markdown_fence(text: str) -> str:
+        cleaned = text.strip()
+        if cleaned.startswith("```") and cleaned.endswith("```"):
+            lines = cleaned.split("\n")
+            if len(lines) > 2:
+                return "\n".join(lines[1:-1])
+        return cleaned
+
 
 class GeminiImageService:
-    """Service for image editing and analysis using Gemini."""
+    """Service for product asset generation using Gemini 3 Image API."""
     
     def __init__(self):
         if settings.GEMINI_API_KEY:
@@ -146,67 +165,93 @@ class GeminiImageService:
         else:
             self.client = None
             logger.warning("Gemini API key not found for Image Service")
+        self.asset_model = settings.GEMINI_IMAGE_MODEL
+        self.default_thinking_level = settings.GEMINI_THINKING_LEVEL
+        self.image_size = settings.GEMINI_IMAGE_SIZE
+        self.aspect_ratio = settings.GEMINI_IMAGE_ASPECT_RATIO
 
-    async def edit_image(
+    async def generate_product_images(
         self,
-        original_image_b64: str,
-        mask_image_b64: str,
-        prompt: str
-    ) -> Optional[str]:
-        """
-        Edit an image using Gemini's image editing capabilities.
+        prompt: str,
+        image_count: int = 3,
+        reference_images: Optional[List[str]] = None,
+        thinking_level: Optional[str] = None,
+    ) -> List[str]:
+        """Generate clean product views using Gemini 3 Image API."""
+        if not self.client:
+            raise GeminiError("Gemini client not initialized for product images")
         
-        Args:
-            original_image_b64: Base64 of the original image
-            mask_image_b64: Base64 of the mask (white=edit, black=preserve)
-            prompt: Text description of the desired edit
-        """
-        try:
-            if not self.client:
-                raise Exception("Gemini client not initialized")
-            
-            # Decode base64
-            original_bytes = base64.b64decode(original_image_b64)
-            mask_bytes = base64.b64decode(mask_image_b64)
-            
-            # Construct prompt
-            full_prompt = f"""Edit this image based on the mask and prompt.
-            
-            TASK: {prompt}
-            
-            Generate the edited image with changes ONLY in white mask areas.
-            """
-            
-            # Call Gemini API (using the genai.Client for image editing specifically if needed, 
-            # or the standard generativeai package if it supports it. 
-            # The HTV code used genai.Client with 'gemini-2.5-flash-image' or similar)
-            
-            response = self.client.models.generate_content(
-                model="gemini-2.0-flash-exp", # Using 2.0 Flash which handles multimodal better
-                contents=[
-                    full_prompt,
-                    types.Part.from_bytes(data=original_bytes, mime_type="image/png"),
-                    types.Part.from_bytes(data=mask_bytes, mime_type="image/png")
-                ]
+        thinking = thinking_level or self.default_thinking_level
+        loop = asyncio.get_running_loop()
+        tasks = [
+            loop.run_in_executor(
+                None,
+                self._generate_single_image,
+                prompt,
+                reference_images,
+                thinking,
             )
-            
-            # Extract image
-            if hasattr(response, 'candidates') and response.candidates:
-                candidate = response.candidates[0]
-                if hasattr(candidate, 'content') and candidate.content.parts:
-                    for part in candidate.content.parts:
-                        if hasattr(part, 'inline_data') and part.inline_data:
-                            image_b64 = base64.b64encode(part.inline_data.data).decode()
-                            return f"data:image/png;base64,{image_b64}"
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error calling Gemini Image Service: {str(e)}")
-            logger.error(traceback.format_exc())
-            return None
+            for _ in range(image_count)
+        ]
+        results = await asyncio.gather(*tasks)
+        # Filter out any failed generations
+        return [img for img in results if img]
+
+    def _generate_single_image(
+        self,
+        prompt: str,
+        reference_images: Optional[List[str]],
+        thinking_level: Optional[str],
+    ) -> Optional[str]:
+        contents: List[types.Part | str] = [prompt]
+        if reference_images:
+            part = _image_to_part(reference_images[0])
+            if part:
+                contents.append(part)
+        config_kwargs: Dict[str, Any] = {}
+        if thinking_level:
+            config_kwargs["thinking_config"] = types.ThinkingConfig(
+                thinking_level=thinking_level
+            )
+        image_config_kwargs: Dict[str, Any] = {}
+        if self.aspect_ratio:
+            image_config_kwargs["aspect_ratio"] = self.aspect_ratio
+        if self.image_size:
+            image_config_kwargs["image_size"] = self.image_size
+        if image_config_kwargs:
+            config_kwargs["image_config"] = types.ImageConfig(**image_config_kwargs)
+        response = self.client.models.generate_content(
+            model=self.asset_model,
+            contents=contents,
+            config=types.GenerateContentConfig(**config_kwargs) if config_kwargs else None,
+        )
+        return _extract_first_image(response)
+
+
+def _extract_first_image(response) -> Optional[str]:
+    if hasattr(response, "candidates") and response.candidates:
+        candidate = response.candidates[0]
+        if hasattr(candidate, "content") and candidate.content.parts:
+            for part in candidate.content.parts:
+                if getattr(part, "inline_data", None):
+                    image_b64 = base64.b64encode(part.inline_data.data).decode()
+                    return f"data:image/png;base64,{image_b64}"
+    return None
+
+
+def _image_to_part(image_str: str) -> Optional[types.Part]:
+    """Convert a data URL/base64 string into a Gemini content part."""
+    try:
+        if image_str.startswith("data:image"):
+            header, b64_data = image_str.split(",", 1)
+            mime = header.split(";")[0].split(":")[1]
+            image_bytes = base64.b64decode(b64_data)
+            return types.Part.from_bytes(data=image_bytes, mime_type=mime)
+    except ValueError as exc:
+        logger.warning(f"Failed to convert reference image for Gemini input: {exc}")
+    return None
+
 
 # Initialize services
 gemini_chat_service = GeminiChatService()
 gemini_image_service = GeminiImageService()
-

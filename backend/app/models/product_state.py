@@ -5,12 +5,10 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from app.core.config import settings
 from app.core.redis import redis_service
 
 PRODUCT_STATE_KEY = "product:current"
 PRODUCT_STATUS_KEY = "product_status:current"
-DEFAULT_TTL_SECONDS = getattr(settings, "PRODUCT_STATE_TTL_SECONDS", 24 * 60 * 60)
 
 
 def _utcnow() -> datetime:
@@ -97,10 +95,6 @@ class ProductStatus(BaseModel):
         return self.model_dump(mode="json")
 
 
-def _effective_ttl(ttl: Optional[int]) -> int:
-    return ttl or DEFAULT_TTL_SECONDS
-
-
 def get_product_state() -> ProductState:
     """Fetch the current session state from Redis or return a default object."""
     payload = redis_service.get_json(PRODUCT_STATE_KEY)
@@ -109,14 +103,10 @@ def get_product_state() -> ProductState:
     return ProductState.model_validate(payload)
 
 
-def save_product_state(state: ProductState, ttl: Optional[int] = None) -> None:
+def save_product_state(state: ProductState) -> None:
     """Persist the session state back to Redis."""
     state.updated_at = _utcnow()
-    redis_service.set_json(
-        PRODUCT_STATE_KEY,
-        state.as_json(),
-        ex=_effective_ttl(ttl),
-    )
+    redis_service.set_json(PRODUCT_STATE_KEY, state.as_json())
 
 
 def clear_product_state() -> ProductState:
@@ -133,12 +123,8 @@ def get_product_status() -> ProductStatus:
     return ProductStatus.model_validate(payload)
 
 
-def save_product_status(status: ProductStatus, ttl: Optional[int] = None) -> None:
+def save_product_status(status: ProductStatus) -> None:
     status.updated_at = _utcnow()
-    redis_service.set_json(
-        PRODUCT_STATUS_KEY,
-        status.as_json(),
-        ex=_effective_ttl(ttl),
-    )
+    redis_service.set_json(PRODUCT_STATUS_KEY, status.as_json())
 
 

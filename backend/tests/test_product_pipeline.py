@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import asyncio
 
 import pytest
 
@@ -18,6 +19,7 @@ from app.models.product_state import (
     save_product_status,
 )
 from app.services.product_pipeline import product_pipeline_service
+from app.integrations import gemini
 
 
 @pytest.mark.asyncio
@@ -33,17 +35,19 @@ async def test_create_flow_persists_assets(monkeypatch):
         "no_background_images": ["https://cdn.local/nobg.png"],
     }
 
-    async def fake_generate_views(prompt, reference_images=None, image_count=3):
+    async def fake_generate_views(prompt, reference_images=None, image_count=3, thinking_level=None):
+        await asyncio.sleep(0)
         assert reference_images is None
         assert prompt == "New speaker concept"
         assert image_count == 3
         return sample_images
 
     async def fake_generate_trellis(images):
+        await asyncio.sleep(0)
         assert images == sample_images
         return sample_trellis
 
-    monkeypatch.setattr(product_pipeline_service, "_generate_product_views", fake_generate_views)
+    monkeypatch.setattr(gemini.gemini_image_service, "generate_product_images", fake_generate_views)
     monkeypatch.setattr(product_pipeline_service, "_generate_trellis_model", fake_generate_trellis)
 
     await product_pipeline_service.run_create("New speaker concept", image_count=3)
@@ -76,16 +80,18 @@ async def test_edit_flow_uses_previous_images(monkeypatch):
     updated_images = ["edit-1", "edit-2", "edit-3"]
     trellis_data = TrellisArtifacts(model_file="https://cdn.local/new.glb").model_dump(mode="json")
 
-    async def fake_generate_views(prompt, reference_images=None, image_count=3):
+    async def fake_generate_views(prompt, reference_images=None, image_count=3, thinking_level=None):
+        await asyncio.sleep(0)
         assert prompt == "Add metallic label"
         assert reference_images == ["existing-image"]
         return updated_images
 
     async def fake_generate_trellis(images):
+        await asyncio.sleep(0)
         assert images == updated_images
         return trellis_data
 
-    monkeypatch.setattr(product_pipeline_service, "_generate_product_views", fake_generate_views)
+    monkeypatch.setattr(gemini.gemini_image_service, "generate_product_images", fake_generate_views)
     monkeypatch.setattr(product_pipeline_service, "_generate_trellis_model", fake_generate_trellis)
 
     await product_pipeline_service.run_edit("Add metallic label")

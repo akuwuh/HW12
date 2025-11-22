@@ -4,9 +4,8 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
-import httpx
-
 from app.integrations.trellis import trellis_service
+from app.integrations.gemini import gemini_image_service
 from app.models.product_state import (
     ProductIteration,
     ProductState,
@@ -26,10 +25,8 @@ class ProductPipelineService:
     """Runs the create/edit pipeline for the single in-memory product session."""
 
     def __init__(self) -> None:
-        self._image_api_url = getattr(settings, "GEMINI_PRODUCT_IMAGE_API_URL", None)
-        self._image_api_key = getattr(settings, "GEMINI_PRODUCT_IMAGE_API_KEY", None)
-        self._image_timeout = getattr(settings, "GEMINI_PRODUCT_IMAGE_TIMEOUT", 45)
-        self._default_image_count = getattr(settings, "GEMINI_PRODUCT_IMAGE_COUNT", 3)
+        self._default_image_count = 3
+        self._thinking_level = settings.GEMINI_THINKING_LEVEL
 
     async def run_create(self, prompt: str, image_count: Optional[int] = None) -> None:
         """Execute the create pipeline end-to-end."""
@@ -64,11 +61,14 @@ class ProductPipelineService:
             )
 
             reference_images = state.images if mode == "edit" else None
-            images = await self._generate_product_views(
-                instruction,
-                reference_images=reference_images,
+            images = await gemini_image_service.generate_product_images(
+                prompt=instruction,
                 image_count=state.image_count or self._default_image_count,
+                reference_images=reference_images,
+                thinking_level=self._thinking_level,
             )
+            if not images:
+                raise RuntimeError("Gemini image pipeline returned no images")
             state.images = images
             save_product_state(state)
 
@@ -115,38 +115,6 @@ class ProductPipelineService:
                     error=str(exc),
                 )
             )
-
-    async def _generate_product_views(
-        self,
-        prompt: str,
-        reference_images: Optional[List[str]] = None,
-        image_count: int = 3,
-    ) -> List[str]:
-        """Call Gemini nano banana image endpoint to get clean multi-angle shots."""
-        if not self._image_api_url or not self._image_api_key:
-            raise RuntimeError("Gemini product image service is not configured")
-
-        payload: Dict[str, Any] = {
-            "prompt": prompt,
-            "image_count": image_count,
-        }
-        if reference_images:
-            payload["reference_images"] = reference_images
-
-        headers = {
-            "Authorization": f"Bearer {self._image_api_key}",
-            "Content-Type": "application/json",
-        }
-
-        async with httpx.AsyncClient(timeout=self._image_timeout) as client:
-            response = await client.post(self._image_api_url, json=payload, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-
-        images = data.get("images")
-        if not isinstance(images, list) or not images:
-            raise RuntimeError("Image generation returned no images")
-        return images[:image_count]
 
     async def _generate_trellis_model(self, images: List[str]) -> Dict[str, Any]:
         """Call Trellis via the existing integration in a background thread."""
