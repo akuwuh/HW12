@@ -104,7 +104,7 @@ export default function Home() {
       {/* Background Logo Vector Animation */}
       <div className={`
         absolute inset-0 flex items-center justify-center z-0 pointer-events-none
-        transition-opacity duration-1000 ease-out delay-200
+        transition-opacity duration-1000 ease-out delay-100
         ${isLoaded ? "opacity-100" : "opacity-0"}
       `}>
         <svg 
@@ -124,7 +124,7 @@ export default function Home() {
               style={{
                 strokeDasharray: pathLengths[i] || 0,
                 strokeDashoffset: isLoaded ? 0 : (pathLengths[i] || 0),
-                transition: isLoaded ? "stroke-dashoffset 0.8s cubic-bezier(0.2, 0, 0.1, 1) 0.3s" : "none",
+                transition: isLoaded ? "stroke-dashoffset 0.8s cubic-bezier(0.2, 0, 0.1, 1) 0.2s" : "none",
                 opacity: pathLengths.length > 0 ? 1 : 0
               }}
             />
