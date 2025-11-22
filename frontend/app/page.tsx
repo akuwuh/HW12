@@ -149,7 +149,7 @@ export default function Home() {
         
         <div className={`
           space-y-2 text-center mb-4
-          transition-all duration-1000 ease-out delay-300
+          transition-all duration-1000 ease-out delay-100
           ${isLoaded ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}
         `}>
           <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
@@ -163,7 +163,7 @@ export default function Home() {
         <div 
           className={`
             w-full max-w-2xl relative group
-            transition-all duration-1000 ease-out delay-500
+            transition-all duration-1000 ease-out delay-200
             ${isLoaded ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}
           `}
         >
