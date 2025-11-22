@@ -59,12 +59,7 @@ function ModelLoader({
   wireframe: boolean;
   showColor: boolean;
 }) {
-  const { scene, error } = useGLTF(url);
-
-  // If there's an error loading the model, throw it so Suspense/ErrorBoundary can catch it
-  if (error) {
-    throw error;
-  }
+  const { scene } = useGLTF(url);
 
   // Clone the scene to avoid modifying the original
   const clonedScene = scene.clone();
