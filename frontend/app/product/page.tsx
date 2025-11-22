@@ -14,8 +14,23 @@ import {
 import { ArrowLeft, Upload, Sparkles, RotateCw, Download, ZoomIn, ZoomOut, Play, Pause, Settings, Sun, Warehouse, Eye, EyeOff, Package, Image, Box, Boxes } from "lucide-react";
 import ModelViewer from "@/components/ModelViewer";
 import { AIChatPanel } from "@/components/AIChatPanel";
+import LoadingOverlay from "@/components/LoadingOverlay";
+import { useSearchParams } from "next/navigation";
 
 export default function ProductPage() {
+  const searchParams = useSearchParams();
+  const shouldTransition = searchParams.get("transition") === "true";
+  const [showTransition, setShowTransition] = useState(shouldTransition);
+
+  useEffect(() => {
+    if (showTransition) {
+      const timer = setTimeout(() => {
+        setShowTransition(false);
+      }, 100); // Start exit animation almost immediately
+      return () => clearTimeout(timer);
+    }
+  }, [showTransition]);
+
   const [currentModelUrl, setCurrentModelUrl] = useState<string>();
   const [selectedColor, setSelectedColor] = useState("#60a5fa");
   const [selectedTexture, setSelectedTexture] = useState("matte");
@@ -23,11 +38,6 @@ export default function ProductPage() {
   const [displayMode, setDisplayMode] = useState<"solid" | "wireframe">("solid");
   const [zoomAction, setZoomAction] = useState<"in" | "out" | null>(null);
   const [autoRotate, setAutoRotate] = useState(true);
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
 
   // Reset zoom action after it's been processed
   useEffect(() => {
@@ -47,7 +57,10 @@ export default function ProductPage() {
   ];
 
   return (
-    <div className={`h-screen bg-background flex flex-col overflow-hidden transition-opacity duration-700 ease-in-out ${isMounted ? 'opacity-100' : 'opacity-0'}`}>
+    <div className="h-screen bg-background flex flex-col overflow-hidden relative">
+      {/* Loading Overlay Transition */}
+      <LoadingOverlay isVisible={false} isExiting={showTransition} />
+      
       <div className="flex-1 flex overflow-hidden">
         {/* 3D Viewer */}
         <div className="flex-1 relative bg-muted/30">
