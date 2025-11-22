@@ -18,6 +18,10 @@ export default function Home() {
   const pathRefs = useRef<(SVGPathElement | null)[]>([]);
   const [images, setImages] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [currentProductIndex, setCurrentProductIndex] = useState(0);
+  const [isAnimating, setIsAnimating] = useState(false);
+
+  const productIdeas = ["Lego", "ball", "hat", "mug", "chair", "pillow", "labubu"];
 
   useEffect(() => {
     // Measure all paths
@@ -30,6 +34,21 @@ export default function Home() {
       return () => clearTimeout(timer);
     }
   }, []);
+
+  // Rotate through product ideas
+  useEffect(() => {
+    if (!isLoaded) return;
+    
+    const interval = setInterval(() => {
+      setIsAnimating(true);
+      setTimeout(() => {
+        setCurrentProductIndex((prev) => (prev + 1) % productIdeas.length);
+        setIsAnimating(false);
+      }, 300); // Half of transition duration
+    }, 2000); // Change every 2 seconds
+
+    return () => clearInterval(interval);
+  }, [isLoaded, productIdeas.length]);
 
   const handleStart = async () => {
     if (!prompt.trim()) return;
@@ -183,8 +202,15 @@ export default function Home() {
           transition-all duration-500 ease-out
           ${isLoaded ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}
         `}>
-          <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-            What do you want to build?
+          <h1 className="text-4xl md:text-5xl font-bold tracking-tight relative inline-block">
+            Build a{" "}
+            <span 
+              className={`inline-block w-[160px] text-left transition-all duration-500 ease-in-out ${
+                isAnimating ? "opacity-0 translate-y-2" : "opacity-100 translate-y-0"
+              }`}
+            >
+              {productIdeas[currentProductIndex]}
+            </span>
           </h1>
           <p className="text-muted-foreground text-lg">
             Describe your product idea and let AI visualize it for you.
