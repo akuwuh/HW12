@@ -172,6 +172,48 @@ class GeminiImageService:
         self.image_size = settings.GEMINI_IMAGE_SIZE
         self.aspect_ratio = settings.GEMINI_IMAGE_ASPECT_RATIO
 
+    def generate_product_images_sync(
+        self,
+        prompt: str,
+        image_count: int = 3,
+        reference_images: Optional[List[str]] = None,
+        thinking_level: Optional[str] = None,
+    ) -> List[str]:
+        """Generate clean product views using Gemini 3 Image API (synchronous)."""
+        if not self.client:
+            raise GeminiError("Gemini client not initialized for product images")
+        
+        thinking = thinking_level or self.default_thinking_level
+        valid_images = []
+        
+        # For /create flow: generate first image, then use it as reference for additional angles
+        # For /edit flow: use provided reference_images for all generations
+        is_create_flow = not reference_images
+        
+        for i in range(image_count):
+            try:
+                # For create flow: first image establishes the product, subsequent use it as reference
+                if is_create_flow and i == 0:
+                    # First view: establish the product design
+                    img = self._generate_single_image(prompt, None, thinking, angle_index=i)
+                elif is_create_flow and i > 0:
+                    # Subsequent views: same product from different angles
+                    img = self._generate_single_image(prompt, valid_images[:1], thinking, angle_index=i)
+                else:
+                    # Edit flow: use provided reference
+                    img = self._generate_single_image(prompt, reference_images, thinking, angle_index=i)
+                
+                if img:
+                    valid_images.append(img)
+                    logger.info(f"[gemini] Image {i+1}/{image_count} generated successfully")
+                else:
+                    logger.warning(f"[gemini] Image {i+1}/{image_count} generation returned None")
+            except Exception as exc:
+                logger.error(f"[gemini] Image {i+1}/{image_count} generation failed: {exc}")
+        
+        logger.info(f"[gemini] Generated {len(valid_images)}/{image_count} valid product images")
+        return valid_images
+    
     async def generate_product_images(
         self,
         prompt: str,
@@ -179,37 +221,66 @@ class GeminiImageService:
         reference_images: Optional[List[str]] = None,
         thinking_level: Optional[str] = None,
     ) -> List[str]:
-        """Generate clean product views using Gemini 3 Image API."""
-        if not self.client:
-            raise GeminiError("Gemini client not initialized for product images")
-        
-        thinking = thinking_level or self.default_thinking_level
-        loop = asyncio.get_running_loop()
-        tasks = [
-            loop.run_in_executor(
-                None,
-                self._generate_single_image,
-                prompt,
-                reference_images,
-                thinking,
-            )
-            for _ in range(image_count)
-        ]
-        results = await asyncio.gather(*tasks)
-        # Filter out any failed generations
-        return [img for img in results if img]
+        """Generate clean product views using Gemini 3 Image API (async wrapper)."""
+        return await asyncio.to_thread(
+            self.generate_product_images_sync,
+            prompt,
+            image_count,
+            reference_images,
+            thinking_level,
+        )
 
     def _generate_single_image(
         self,
         prompt: str,
         reference_images: Optional[List[str]],
         thinking_level: Optional[str],
+        angle_index: int = 0,
     ) -> Optional[str]:
-        contents: List[types.Part | str] = [prompt]
+        # Define camera angles for multi-view generation
+        angles = [
+            "front view at eye level",
+            "three-quarter view from the right side",
+            "overhead view looking down"
+        ]
+        angle_description = angles[angle_index] if angle_index < len(angles) else "alternate angle"
+        
+        # Enhance prompt for clean, 3D-ready product shots
+        if reference_images:
+            # Subsequent views or edit flow: maintain consistency with reference
+            enhanced_prompt = (
+                f"Generate a product photograph matching the EXACT same product shown in the reference image.\n"
+                f"Show the product from a {angle_description}.\n\n"
+                f"Product description: {prompt}\n\n"
+                "Requirements:\n"
+                "- IDENTICAL product design, colors, materials, and details as the reference\n"
+                "- Clean, pure white background (#FFFFFF)\n"
+                "- Professional studio lighting with soft shadows\n"
+                "- Sharp focus on the product\n"
+                "- Clear, well-defined edges optimized for 3D model generation\n"
+                "- No text, watermarks, or distracting elements\n"
+                "- Product centered in frame"
+            )
+        else:
+            # First view: establish the product
+            enhanced_prompt = (
+                f"Generate a high-quality product photograph of: {prompt}\n"
+                f"Camera angle: {angle_description}\n\n"
+                "Requirements:\n"
+                "- Clean, pure white background (#FFFFFF)\n"
+                "- Professional studio lighting with soft shadows\n"
+                "- Sharp focus on the product\n"
+                "- Clear, well-defined edges optimized for 3D model generation\n"
+                "- No text, watermarks, or distracting elements\n"
+                "- Product centered in frame\n"
+                "- Consistent design that can be photographed from multiple angles"
+            )
+        
+        contents: List[types.Part | str] = [enhanced_prompt]
         if reference_images:
             part = _image_to_part(reference_images[0])
             if part:
-                contents.append(part)
+                contents.insert(1, part)  # Reference image after enhanced prompt
         config_kwargs: Dict[str, Any] = {}
         if thinking_level:
             config_kwargs["thinking_config"] = types.ThinkingConfig(
@@ -234,14 +305,20 @@ class GeminiImageService:
 
 
 def _extract_first_image(response) -> Optional[str]:
-    if hasattr(response, "candidates") and response.candidates:
-        candidate = response.candidates[0]
-        if hasattr(candidate, "content") and candidate.content.parts:
-            for part in candidate.content.parts:
-                if getattr(part, "inline_data", None):
-                    image_b64 = base64.b64encode(part.inline_data.data).decode()
-                    return f"data:image/png;base64,{image_b64}"
-    return None
+    try:
+        if hasattr(response, "candidates") and response.candidates:
+            candidate = response.candidates[0]
+            if hasattr(candidate, "content") and candidate.content.parts:
+                for part in candidate.content.parts:
+                    if getattr(part, "inline_data", None):
+                        image_b64 = base64.b64encode(part.inline_data.data).decode()
+                        logger.info(f"[gemini] Extracted image from response ({len(image_b64)} chars)")
+                        return f"data:image/png;base64,{image_b64}"
+        logger.warning(f"[gemini] No inline_data found in response. Candidates: {bool(getattr(response, 'candidates', None))}")
+        return None
+    except Exception as exc:
+        logger.error(f"[gemini] Image extraction failed: {exc}", exc_info=True)
+        return None
 
 
 def _image_to_part(image_str: str) -> Optional[types.Part]:

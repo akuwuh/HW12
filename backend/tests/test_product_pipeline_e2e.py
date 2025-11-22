@@ -128,6 +128,13 @@ def _download_if_url(url: Optional[str], dest: Path):
 
 
 def test_product_create_flow_real(api_client):
+    import time
+    start_time = time.time()
+    
+    print("\n" + "="*80)
+    print("🧪 TEST: Product Create Flow")
+    print("="*80)
+    
     resp = api_client.post(
         "/product/create",
         json={
@@ -143,11 +150,29 @@ def test_product_create_flow_real(api_client):
 
     state = api_client.get("/product").json()
     _persist_assets(state, "create")
+    
+    elapsed = time.time() - start_time
+    model_url = state["trellis_output"]["model_file"]
+    
+    print(f"\n✅ CREATE FLOW COMPLETE")
+    print(f"⏱️  Total time: {elapsed:.1f}s ({elapsed/60:.1f} minutes)")
+    print(f"📦 Model file: {model_url[:80]}..." if len(model_url) > 80 else f"📦 Model file: {model_url}")
+    print(f"🖼️  Images: {len(state['images'])} generated")
+    print(f"📁 Artifacts saved to: backend/tests/artifacts/")
+    print("="*80 + "\n")
+    
     assert state["trellis_output"]["model_file"]
     assert len(state["images"]) == 3
 
 
 def test_product_edit_flow_real(api_client):
+    import time
+    start_time = time.time()
+    
+    print("\n" + "="*80)
+    print("🧪 TEST: Product Edit Flow")
+    print("="*80)
+    
     _ensure_base_product(api_client)
 
     resp = api_client.post(
@@ -162,6 +187,17 @@ def test_product_edit_flow_real(api_client):
 
     state = api_client.get("/product").json()
     _persist_assets(state, "edit")
+    
+    elapsed = time.time() - start_time
+    model_url = state["trellis_output"]["model_file"]
+    
+    print(f"\n✅ EDIT FLOW COMPLETE")
+    print(f"⏱️  Total time: {elapsed:.1f}s ({elapsed/60:.1f} minutes)")
+    print(f"📦 Model file: {model_url[:80]}..." if len(model_url) > 80 else f"📦 Model file: {model_url}")
+    print(f"🖼️  Total iterations: {len(state['iterations'])}")
+    print(f"📁 Artifacts saved to: backend/tests/artifacts/")
+    print("="*80 + "\n")
+    
     assert state["iterations"][-1]["type"] == "edit"
     assert state["trellis_output"]["model_file"]
 

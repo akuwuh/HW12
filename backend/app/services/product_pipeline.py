@@ -157,8 +157,10 @@ class ProductPipelineService:
         try:
             run_dir = ARTIFACTS_DIR / f"gemini_{mode}_{int(time.time())}"
             run_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"[product-pipeline] Saving {len(images)} Gemini images to {run_dir}")
             
             for idx, img in enumerate(images, start=1):
+                logger.info(f"[product-pipeline] Processing image {idx}, type: {type(img)}, starts with data:image: {isinstance(img, str) and img.startswith('data:image')}")
                 if isinstance(img, str) and img.startswith("data:image"):
                     try:
                         header, b64_data = img.split(",", 1)
@@ -166,9 +168,11 @@ class ProductPipelineService:
                         extension = mime.split("/")[-1] if "/" in mime else "png"
                         dest = run_dir / f"gemini_view_{idx}.{extension}"
                         dest.write_bytes(base64.b64decode(b64_data))
-                        logger.info(f"[product-pipeline] Saved Gemini image {idx} to {dest}")
+                        logger.info(f"[product-pipeline] ✓ Saved Gemini image {idx} to {dest}")
                     except Exception as exc:
                         logger.warning(f"[product-pipeline] Failed to save Gemini image {idx}: {exc}")
+                else:
+                    logger.warning(f"[product-pipeline] Skipping image {idx} - not a data URL (preview: {str(img)[:100]})")
         except Exception as exc:
             logger.warning(f"[product-pipeline] Failed to create artifacts dir: {exc}")
 
