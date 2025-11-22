@@ -36,8 +36,8 @@ export default function RootLayout({
         <div className="h-screen flex flex-col overflow-hidden bg-background">
           <LoadingProvider>
             <main className="flex-1 flex flex-col overflow-hidden relative">
+              <Header />
               <PageTransition>
-                <Header />
                 {children}
               </PageTransition>
             </main>
