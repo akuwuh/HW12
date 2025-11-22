@@ -190,7 +190,7 @@ export default function Home() {
       `}>
         <div className="flex items-center gap-3">
           <Boxes className="w-10 h-10" />
-          <span className="text-xl font-bold tracking-tight">Packify</span>
+          <span className="text-xl font-bold tracking-tight">Atelier</span>
         </div>
       </div>
 
