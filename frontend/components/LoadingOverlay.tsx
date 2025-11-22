@@ -18,7 +18,7 @@ export default function LoadingOverlay({ isVisible, isExiting = false }: Loading
         ${!isVisible && !isExiting ? "hidden" : ""}
         ${isExiting 
           ? "-translate-y-full" 
-          : "translate-y-0 animate-in slide-in-from-top duration-700 fill-mode-forwards delay-100"
+          : "translate-y-0 animate-in slide-in-from-top duration-700 fill-mode-forwards"
         }
       `}
     >
