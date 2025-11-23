@@ -59,8 +59,10 @@ async def generate_panel_texture(request: PanelGenerateRequest):
     
     state = get_packaging_state()
     
-    # DON'T clear old texture - keep it visible until new one is ready
-    # The new texture will atomically replace the old one when generation completes
+    # Detect create vs edit workflow
+    existing_texture = state.get_panel_texture(request.panel_id)
+    workflow = "edit" if existing_texture else "create"
+    old_texture_url = existing_texture.texture_url if existing_texture else None
     
     # Update state with current package info
     state.package_type = request.package_type
@@ -70,7 +72,7 @@ async def generate_panel_texture(request: PanelGenerateRequest):
     state.last_error = None
     save_packaging_state(state)
     
-    logger.info(f"[packaging-router] Starting texture generation for panel {request.panel_id}")
+    logger.info(f"[packaging-router] Starting {workflow} for panel {request.panel_id}")
     
     # Run generation in background
     async def _generate():
@@ -82,6 +84,8 @@ async def generate_panel_texture(request: PanelGenerateRequest):
                 panel_dimensions=request.panel_dimensions,
                 package_dimensions=request.package_dimensions,
                 reference_mockup=request.reference_mockup,
+                workflow=workflow,
+                old_texture_url=old_texture_url,
             )
             
             # Get fresh state to avoid race conditions
@@ -146,68 +150,158 @@ async def generate_all_panels(request: BulkPanelGenerateRequest):
     
     logger.info(f"[packaging-router] Starting bulk texture generation for {len(request.panel_ids)} panels")
     
-    # Run generation in background
+    # Run generation in background with two-phase approach
     async def _generate_all():
-        generated_textures = {}  # Accumulate here for atomic save
+        generated_textures = {}
         failed_panels = []
         
-        for panel_id in request.panel_ids:
+        # Determine workflow (create vs edit)
+        has_existing = any(state.get_panel_texture(pid) for pid in request.panel_ids)
+        workflow = "edit" if has_existing else "create"
+        
+        # PHASE 1: Generate 3D mockup of the entire box as master reference
+        logger.info(f"[packaging-router] PHASE 1: Generating 3D mockup reference ({workflow})")
+        
+        try:
+            from app.integrations.gemini import gemini_image_service
+            
+            # Build 3D mockup prompt (different for create vs edit)
+            reference_for_mockup = None
+            
+            if workflow == "edit":
+                # EDIT FLOW: Modify existing design
+                # Use first existing texture as reference
+                for pid in request.panel_ids:
+                    existing = state.get_panel_texture(pid)
+                    if existing:
+                        reference_for_mockup = existing.texture_url
+                        break
+                
+                box_prompt = f"""Modify the package design shown in the reference image.
+
+MODIFICATIONS REQUESTED:
+{request.prompt}
+
+CRITICAL DESIGN REQUIREMENTS:
+- Maintain full-bleed coverage on all visible faces (no white borders)
+- The design MUST extend completely to all edges
+- Graphics and patterns should reach the very edges of each panel
+
+OUTPUT REQUIREMENTS:
+- Generate a 3D product photograph showing the modified design
+- Show from a 3/4 angle view with multiple visible faces
+- Apply the requested changes while maintaining edge-to-edge coverage
+- Professional product photography style with good lighting
+- Dimensions: {request.package_dimensions.get('width', 100)}mm × {request.package_dimensions.get('height', 150)}mm × {request.package_dimensions.get('depth', 100)}mm
+
+Generate the modified 3D mockup with complete edge-to-edge design coverage."""
+            
+            else:
+                # CREATE FLOW: New design from scratch
+                if request.reference_mockup:
+                    reference_for_mockup = request.reference_mockup
+                
+                box_prompt = f"""Generate a realistic 3D product photograph of a {request.package_type} package.
+
+DESIGN BRIEF:
+{request.prompt}
+
+SPECIFICATIONS:
+- Package type: {request.package_type}
+- Dimensions: {request.package_dimensions.get('width', 100)}mm × {request.package_dimensions.get('height', 150)}mm × {request.package_dimensions.get('depth', 100)}mm
+
+CRITICAL DESIGN REQUIREMENTS:
+- The design MUST cover ALL visible faces completely from edge to edge
+- NO white borders or margins on the package faces
+- Graphics and patterns should extend to the very edges of each panel
+- Full-bleed coverage on all sides (top, front, back, left, right)
+
+OUTPUT REQUIREMENTS:
+- Show from a 3/4 angle view with multiple visible faces
+- Display the complete design concept with edge-to-edge coverage
+- Professional product photography style
+- Good lighting and shadows
+- Clear, sharp, high-quality rendering
+
+Generate a complete 3D mockup with full-coverage design on all faces."""
+            
+            # Generate 3D mockup
+            mockup_images = await gemini_image_service.generate_product_images(
+                prompt=box_prompt,
+                workflow=workflow,
+                image_count=1,
+                reference_images=[reference_for_mockup] if reference_for_mockup else None,
+                is_texture=False,  # This is a 3D product photo, not a flat texture
+            )
+            
+            if not mockup_images or len(mockup_images) == 0:
+                logger.error("[packaging-router] Failed to generate 3D mockup")
+                # Fallback: use reference_mockup if available
+                master_mockup_url = request.reference_mockup
+            else:
+                master_mockup_url = mockup_images[0]
+                logger.info(f"[packaging-router] ✅ 3D mockup generated successfully")
+                
+        except Exception as e:
+            logger.error(f"[packaging-router] Error generating 3D mockup: {e}", exc_info=True)
+            master_mockup_url = request.reference_mockup  # Fallback
+        
+        # PHASE 2: Parallelize all panels using 3D mockup as reference
+        logger.info(f"[packaging-router] PHASE 2: Generating {len(request.panel_ids)} panels in parallel")
+        
+        # Create parallel tasks for ALL panels
+        async def generate_panel(panel_id: str):
             try:
-                # Update state to show current panel being generated
                 current_state = get_packaging_state()
                 current_state.generating_panel = panel_id
                 save_packaging_state(current_state)
                 
-                logger.info(f"[packaging-router] Generating texture for panel {panel_id} ({len(generated_textures) + 1}/{len(request.panel_ids)})")
-                
-                panel_dimensions = request.panels_info.get(panel_id, {})
-                
+                panel_dims = request.panels_info.get(panel_id, {})
                 texture_url = await panel_generation_service.generate_panel_texture(
                     panel_id=panel_id,
                     prompt=request.prompt,
                     package_type=request.package_type,
-                    panel_dimensions=panel_dimensions,
+                    panel_dimensions=panel_dims,
                     package_dimensions=request.package_dimensions,
-                    reference_mockup=request.reference_mockup,
+                    reference_mockup=master_mockup_url,  # Use 3D mockup as reference for all
+                    workflow=workflow,
+                    old_texture_url=None,  # 3D mockup is the reference now
                 )
                 
-                # Update state after completing this panel
-                current_state = get_packaging_state()
-                
                 if texture_url:
-                    # Accumulate in local dict instead of saving immediately
-                    generated_textures[panel_id] = PanelTexture(
-                        panel_id=panel_id,
-                        texture_url=texture_url,
-                        prompt=request.prompt,
-                        dimensions=panel_dimensions,
-                    )
-                    
-                    # Remove from generating_panels list to show progress
-                    if panel_id in current_state.generating_panels:
-                        current_state.generating_panels.remove(panel_id)
-                        save_packaging_state(current_state)
-                    
-                    logger.info(f"[packaging-router] Successfully generated texture for panel {panel_id} ({len(generated_textures)}/{len(request.panel_ids)})")
-                else:
-                    logger.error(f"[packaging-router] Texture generation returned no image for panel {panel_id}")
-                    failed_panels.append(panel_id)
-                    # Still remove from list even if failed
-                    if panel_id in current_state.generating_panels:
-                        current_state.generating_panels.remove(panel_id)
-                        save_packaging_state(current_state)
-                    
-            except Exception as e:
-                logger.error(f"[packaging-router] Error generating texture for panel {panel_id}: {e}", exc_info=True)
-                failed_panels.append(panel_id)
-                # Remove from list even on error
-                try:
+                    # Remove from generating list
                     current_state = get_packaging_state()
                     if panel_id in current_state.generating_panels:
                         current_state.generating_panels.remove(panel_id)
                         save_packaging_state(current_state)
-                except:
-                    pass
+                    return (panel_id, texture_url, panel_dims)
+                else:
+                    return (panel_id, None, panel_dims)
+            except Exception as e:
+                logger.error(f"[packaging-router] Error generating panel {panel_id}: {e}")
+                return (panel_id, None, None)
+        
+        # Run ALL panels in parallel
+        results = await asyncio.gather(*[generate_panel(pid) for pid in request.panel_ids], return_exceptions=True)
+        
+        # Process results
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error(f"[packaging-router] Task exception: {result}")
+                continue
+            
+            panel_id, texture_url, panel_dims = result
+            if texture_url:
+                generated_textures[panel_id] = PanelTexture(
+                    panel_id=panel_id,
+                    texture_url=texture_url,
+                    prompt=request.prompt,
+                    dimensions=panel_dims,
+                )
+            else:
+                failed_panels.append(panel_id)
+        
+        logger.info(f"[packaging-router] ✅ Parallel generation complete: {len(generated_textures)}/{len(request.panel_ids)} succeeded")
         
         # ATOMIC UPDATE: Save all textures at once
         final_state = get_packaging_state()
@@ -311,6 +405,32 @@ async def get_packaging_status():
         "generating_panels": state.generating_panels,
         "last_error": state.last_error,
         "updated_at": state.updated_at.isoformat(),
+    }
+
+
+@router.post("/reset-current-shape")
+async def reset_current_shape():
+    """Reset the current active shape to default dimensions and clear its textures."""
+    logger.info("[packaging-router] Resetting current shape to defaults")
+    
+    state = get_packaging_state()
+    current_type = state.current_package_type
+    
+    # Reset current shape's state to defaults
+    if current_type == "box":
+        state.box_state.dimensions = {"width": 100.0, "height": 150.0, "depth": 100.0}
+        state.box_state.panel_textures = {}
+    else:  # cylinder
+        state.cylinder_state.dimensions = {"width": 80.0, "height": 150.0, "depth": 80.0}
+        state.cylinder_state.panel_textures = {}
+    
+    save_packaging_state(state)
+    
+    logger.info(f"[packaging-router] Reset {current_type} to defaults")
+    return {
+        "message": f"Reset {current_type} to default state",
+        "package_type": current_type,
+        "dimensions": state.box_state.dimensions if current_type == "box" else state.cylinder_state.dimensions,
     }
 
 

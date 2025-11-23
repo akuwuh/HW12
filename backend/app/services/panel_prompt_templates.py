@@ -107,6 +107,29 @@ USER CUSTOMIZATION
 {user_prompt}
 """
 
+    # Universal template for extracting panels from 3D mockup (both create and edit flows)
+    MOCKUP_EXTRACTION_TEMPLATE = """Extract the {face_name} panel design from the 3D product mockup.
+
+Panel: {face_name}
+Size: {panel_width_mm}mm × {panel_height_mm}mm
+Aspect Ratio: {aspect_ratio_lock} (maintain exactly)
+
+CRITICAL - FULL BLEED REQUIREMENTS:
+- The design MUST fill the ENTIRE image from edge to edge
+- NO white borders, NO margins, NO padding
+- Design extends completely to all 4 edges (top, bottom, left, right)
+- Every pixel of the {panel_width_mm}mm × {panel_height_mm}mm area must be covered
+- Background and design elements reach all corners
+
+TASK:
+1. Study the 3D mockup to see the {face_name} panel design
+2. Extract that exact design as a flat texture
+3. Scale it to fill the ENTIRE frame edge-to-edge
+4. Ensure zero white space around edges
+
+OUTPUT:
+Flat, print-ready panel texture at {aspect_ratio_lock} ratio with complete edge-to-edge coverage."""
+
     # Simple texture template (for basic requests without reference mockup)
     SIMPLE_TEMPLATE = """Generate a flat packaging panel texture with the following specifications:
 
@@ -386,12 +409,7 @@ OUTPUT: Generate exactly ONE flat panel texture at {aspect_ratio_lock} aspect ra
         panel_height_mm: float,
         user_prompt: str,
     ) -> str:
-        """
-        Build a simple prompt for basic texture generation without full context.
-        
-        This is a fallback when full box dimensions aren't available.
-        """
-        # Validate user prompt
+        """Build a simple prompt for basic texture generation without full context."""
         is_valid, error = self.validate_user_prompt(user_prompt)
         if not is_valid:
             raise ValueError(error)
@@ -399,8 +417,6 @@ OUTPUT: Generate exactly ONE flat panel texture at {aspect_ratio_lock} aspect ra
         panel_width_in = self.mm_to_inches(panel_width_mm)
         panel_height_in = self.mm_to_inches(panel_height_mm)
         aspect_ratio = self.calculate_aspect_ratio(panel_width_mm, panel_height_mm)
-        
-        # Generate scale and composition guidance
         scale_guidance = self.generate_scale_guidance(panel_width_mm, panel_height_mm, face_name)
         orientation = self.get_panel_orientation(panel_width_mm, panel_height_mm)
         panel_size_description = self.get_panel_size_description(panel_width_mm, panel_height_mm)
@@ -419,6 +435,22 @@ OUTPUT: Generate exactly ONE flat panel texture at {aspect_ratio_lock} aspect ra
         )
         
         return prompt
+    
+    def build_mockup_extraction_prompt(
+        self,
+        face_name: str,
+        panel_width_mm: float,
+        panel_height_mm: float,
+    ) -> str:
+        """Build prompt for extracting panels from 3D mockup (works for both create and edit flows)."""
+        aspect_ratio = self.calculate_aspect_ratio(panel_width_mm, panel_height_mm)
+        
+        return self.MOCKUP_EXTRACTION_TEMPLATE.format(
+            face_name=face_name,
+            panel_width_mm=int(panel_width_mm),
+            panel_height_mm=int(panel_height_mm),
+            aspect_ratio_lock=aspect_ratio,
+        )
 
 
 # Global instance

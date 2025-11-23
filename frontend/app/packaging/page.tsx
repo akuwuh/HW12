@@ -9,7 +9,23 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { DielineEditor } from "@/components/dieline-editor";
 import { PackageViewer3D, PackageViewer3DRef } from "@/components/package-viewer-3d";
 import { AIChatPanel } from "@/components/AIChatPanel";
-import { CylinderIcon, Box, CheckCircle2, MessageSquare, Pencil, Download } from "lucide-react";
+import { CylinderIcon, Box, CheckCircle2, MessageSquare, Pencil, Download, RotateCcw } from "lucide-react";
+import { useLoading } from "@/providers/LoadingProvider";
+import { updatePackagingDimensions, getPackagingState, getPackagingStatus, resetCurrentShape } from "@/lib/packaging-api";
+import { getCachedTextureUrl } from "@/lib/texture-cache";
+import type {
+  PackageType,
+  PackageDimensions,
+  PackagingState,
+  PackageModel,
+  PanelId,
+  DielinePath,
+} from "@/lib/packaging-types";
+import {
+  DEFAULT_PACKAGE_DIMENSIONS,
+  generatePackageModel,
+  updateModelFromDielines,
+} from "@/lib/packaging-types";
 
 // Separate component for the editor panel to reduce main component re-renders
 const PackagingEditor = React.memo(function PackagingEditor({
@@ -17,6 +33,7 @@ const PackagingEditor = React.memo(function PackagingEditor({
   setActiveView,
   packageType,
   handlePackageTypeChange,
+  handleResetCurrentShape,
   dimensions,
   handleDimensionChange,
   packageModel,
@@ -28,6 +45,7 @@ const PackagingEditor = React.memo(function PackagingEditor({
   setActiveView: (view: "2d" | "3d") => void;
   packageType: PackageType;
   handlePackageTypeChange: (type: PackageType) => Promise<void>;
+  handleResetCurrentShape: () => Promise<void>;
   dimensions: PackageDimensions;
   handleDimensionChange: (key: keyof PackageDimensions, value: number) => void;
   packageModel: PackageModel | null;
@@ -62,7 +80,19 @@ const PackagingEditor = React.memo(function PackagingEditor({
 
       {/* Package Type Selection */}
       <div className="space-y-3">
-        <Label className="text-xs font-medium text-muted-foreground">Package Type</Label>
+        <div className="flex items-center justify-between">
+          <Label className="text-xs font-medium text-muted-foreground">Package Type</Label>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleResetCurrentShape}
+            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+            title={`Reset ${packageType} to defaults`}
+          >
+            <RotateCcw className="w-3 h-3 mr-1" />
+            Reset
+          </Button>
+        </div>
         <div className="grid grid-cols-2 gap-2">
           {PACKAGE_TYPES.map(({ type, label, icon: Icon }) => (
             <Button
@@ -231,20 +261,6 @@ const PackagingEditor = React.memo(function PackagingEditor({
     </TabsContent>
   );
 });
-import { useLoading } from "@/providers/LoadingProvider";
-import { updatePackagingDimensions, getPackagingState, getPackagingStatus } from "@/lib/packaging-api";
-import { getCachedTextureUrl } from "@/lib/texture-cache";
-import {
-  type PackageType,
-  type PackageDimensions,
-  type PackagingState,
-  DEFAULT_PACKAGE_DIMENSIONS,
-  generatePackageModel,
-  updateModelFromDielines,
-  type PackageModel,
-  type PanelId,
-  type DielinePath,
-} from "@/lib/packaging-types";
 
 const PACKAGE_TYPES: readonly { type: PackageType; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { type: "box", label: "Box", icon: Box },
@@ -347,6 +363,10 @@ function Packaging() {
           clearInterval(pollInterval);
           setIsGenerating(false);
           
+          // Clear texture cache to force fresh load of new textures
+          const { clearTextureCache } = await import('@/lib/texture-cache');
+          await clearTextureCache();
+          
           // Force complete texture reload
           const currentShapeState = packageType === 'cylinder' ? freshState.cylinder_state : freshState.box_state;
           const newTextures: Partial<Record<PanelId, string>> = {};
@@ -369,18 +389,25 @@ function Packaging() {
       } catch (err) {
         // Skip
       }
-    }, 2000);
+    }, 1000); // Poll every second for real-time updates
 
     return () => clearInterval(pollInterval);
   }, [isGenerating, packageType, packageModel]);
+
+  // Track if we should preserve manual dieline edits
+  const [hasManualDielineEdits, setHasManualDielineEdits] = useState(false);
 
   useEffect(() => {
     // Skip if not yet hydrated (hydration handles model generation)
     if (!isHydrated) return;
     
     const newModel = generatePackageModel(packageType, dimensions);
+    
+    // If user manually edited dielines, we could preserve those edits here
+    // But for now, we'll always regenerate to match 3D model
     setPackageModel(newModel);
     setSelectedPanelId(null);
+    setHasManualDielineEdits(false); // Reset flag when dimensions change
   }, [packageType, dimensions.width, dimensions.height, dimensions.depth]);
   
   const handlePackageTypeChange = useCallback(async (type: PackageType) => {
@@ -480,36 +507,87 @@ function Packaging() {
     });
   }, [packageType, saveDimensionsDebounced]);
 
+  const handleResetCurrentShape = useCallback(async () => {
+    try {
+      const result = await resetCurrentShape();
+      const defaultDims: PackageDimensions = {
+        width: result.dimensions.width || 100,
+        height: result.dimensions.height || 150,
+        depth: result.dimensions.depth || 100,
+      };
+      
+      // Clear texture cache when resetting
+      const { clearTextureCache } = await import('@/lib/texture-cache');
+      await clearTextureCache();
+      
+      // Clear textures and reset dimensions
+      setPanelTextures({});
+      setDimensions(defaultDims);
+      
+      // Regenerate model with default dimensions
+      const newModel = generatePackageModel(packageType, defaultDims);
+      setPackageModel(newModel);
+      setSelectedPanelId(null);
+      
+      // Update local packaging state
+      setPackagingState(prevState => {
+        if (!prevState) return prevState;
+        
+        const resetState = {
+          dimensions: defaultDims,
+          panel_textures: {},
+        };
+        
+        return {
+          ...prevState,
+          [packageType === 'box' ? 'box_state' : 'cylinder_state']: resetState,
+        };
+      });
+      
+    } catch (error) {
+      console.error("[Packaging] Failed to reset shape:", error);
+    }
+  }, [packageType]);
+
   const handleDielineChange = useCallback((newDielines: DielinePath[]) => {
     setPackageModel((prev) => {
       if (!prev) return prev;
       return updateModelFromDielines(prev, newDielines);
     });
+    setHasManualDielineEdits(true); // Mark that user has manually edited dielines
   }, []);
 
   const handleTextureGenerated = useCallback(async (panelId: PanelId, textureUrl: string) => {
-    // Cache the texture first
+    // Clear cache for this panel first to ensure fresh load
+    try {
+      const { clearTextureCache } = await import('@/lib/texture-cache');
+      await clearTextureCache(panelId);
+    } catch (err) {
+      // Continue even if cache clear fails
+    }
+    
+    // Cache the new texture
     try {
       const cachedUrl = await getCachedTextureUrl(panelId, textureUrl);
       
       setPanelTextures((prev) => ({ ...prev, [panelId]: cachedUrl }));
-      
+    
       setPackageModel((prev) => {
         if (!prev) return prev;
         return {
-          ...prev,
-          panelStates: {
-            ...prev.panelStates,
-            [panelId]: {
-              ...prev.panelStates[panelId],
+      ...prev,
+      panelStates: {
+        ...prev.panelStates,
+        [panelId]: {
+          ...prev.panelStates[panelId],
               textureUrl: cachedUrl,
-            },
-          },
+        },
+      },
         };
       });
 
-      setShowTextureNotification({ panelId, show: true });
-      setTimeout(() => setShowTextureNotification(null), 3000);
+    setShowTextureNotification({ panelId, show: true });
+    setTimeout(() => setShowTextureNotification(null), 3000);
     } catch (err) {
       console.error(`Failed to cache texture for ${panelId}:`, err);
     }
@@ -584,12 +662,14 @@ function Packaging() {
           <div className="flex-1 overflow-hidden">
             {activeView === "2d" ? (
               <DielineEditor
+                key={`${packageType}-${dimensions.width}-${dimensions.height}-${dimensions.depth}`}
                 dielines={packageModel.dielines}
                 panels={packageModel.panels}
                 selectedPanelId={selectedPanelId}
                 onDielineChange={handleDielineChange}
                 onPanelSelect={setSelectedPanelId}
                 editable={true}
+                panelTextures={panelTextures}
               />
             ) : (
               <div className="h-full bg-muted/30 relative">
@@ -634,8 +714,8 @@ function Packaging() {
                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                       <div>
                         <p className="text-sm font-semibold">Generating Textures</p>
-                        {packagingState.generating_panel && (
-                          <p className="text-xs opacity-80">Current: {packagingState.generating_panel}</p>
+                        {packagingState.generating_panels && packagingState.generating_panels.length > 0 && (
+                          <p className="text-xs opacity-80">{packagingState.generating_panels.length} panel(s) remaining</p>
                         )}
                       </div>
                     </div>
@@ -662,7 +742,7 @@ function Packaging() {
 
         <div className="w-[380px] border-l-2 border-black bg-card overflow-hidden flex flex-col shrink-0">
           <Tabs defaultValue="chat" className="flex-1 flex flex-col">
-            <div className="border-b-2 border-black shrink-0 px-4 py-3">
+          <div className="border-b-2 border-black shrink-0 px-4 py-3">
               <TabsList className="w-full grid grid-cols-2 gap-2 bg-transparent p-0 h-auto">
                 <TabsTrigger value="chat" className="gap-2 border-2 border-black data-[state=active]:bg-black data-[state=active]:text-white data-[state=inactive]:bg-background shadow-none">
                   <MessageSquare className="w-4 h-4" />
@@ -673,7 +753,7 @@ function Packaging() {
                   Editor
                 </TabsTrigger>
               </TabsList>
-            </div>
+          </div>
 
             {/* Chat Tab */}
             <TabsContent value="chat" className="flex-1 overflow-y-auto p-4 flex flex-col space-y-4 mt-0">
@@ -682,40 +762,41 @@ function Packaging() {
                 selectedPanelId={selectedPanelId}
                 packageModel={packageModel}
                 onTextureGenerated={handleTextureGenerated}
+                onGenerationStart={() => setIsGenerating(true)}
                 packagingState={packagingState}
                 isGenerating={isGenerating}
               />
 
-              {/* Panel Selection */}
-              {packageModel.panels.length > 0 && (
+            {/* Panel Selection */}
+            {packageModel.panels.length > 0 && (
                 <div className="border-2 border-black p-4 space-y-3">
-                  <h3 className="text-sm font-semibold text-foreground">Select Panel</h3>
-                  <div className="grid grid-cols-2 gap-2">
-                    {packageModel.panels.map((panel) => (
-                      <Button
-                        key={panel.id}
-                        variant={selectedPanelId === panel.id ? "default" : "outline"}
-                        className="text-xs"
-                        size="sm"
-                        onClick={() => setSelectedPanelId(panel.id === selectedPanelId ? null : panel.id)}
-                      >
-                        {panel.name}
-                        {panelTextures[panel.id] && (
-                          <span className="ml-1 text-[10px]">✨</span>
-                        )}
-                      </Button>
-                    ))}
-                  </div>
-                  {selectedPanelId && (
+                <h3 className="text-sm font-semibold text-foreground">Select Panel</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  {packageModel.panels.map((panel) => (
+                    <Button
+                      key={panel.id}
+                      variant={selectedPanelId === panel.id ? "default" : "outline"}
+                      className="text-xs"
+                      size="sm"
+                      onClick={() => setSelectedPanelId(panel.id === selectedPanelId ? null : panel.id)}
+                    >
+                      {panel.name}
+                      {panelTextures[panel.id] && (
+                        <span className="ml-1 text-[10px]">✨</span>
+                      )}
+                    </Button>
+                  ))}
+                </div>
+                {selectedPanelId && (
                     <div className="mt-2 p-2 border-2 border-black text-xs">
-                      <p className="font-medium">
-                        {packageModel.panels.find((p) => p.id === selectedPanelId)?.name}
-                      </p>
-                      <p className="text-muted-foreground mt-1">
-                        {packageModel.panels.find((p) => p.id === selectedPanelId)?.description}
-                      </p>
-                    </div>
-                  )}
+                    <p className="font-medium">
+                      {packageModel.panels.find((p) => p.id === selectedPanelId)?.name}
+                    </p>
+                    <p className="text-muted-foreground mt-1">
+                      {packageModel.panels.find((p) => p.id === selectedPanelId)?.description}
+                    </p>
+                  </div>
+                )}
                 </div>
               )}
             </TabsContent>
@@ -726,6 +807,7 @@ function Packaging() {
               setActiveView={setActiveView}
               packageType={packageType}
               handlePackageTypeChange={handlePackageTypeChange}
+              handleResetCurrentShape={handleResetCurrentShape}
               dimensions={dimensions}
               handleDimensionChange={handleDimensionChange}
               packageModel={packageModel}

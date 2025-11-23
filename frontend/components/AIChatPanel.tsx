@@ -28,6 +28,7 @@ interface PackagingAIChatPanelProps {
   selectedPanelId?: PanelId | null;
   packageModel?: PackageModel;
   onTextureGenerated?: (panelId: PanelId, textureUrl: string) => void;
+  onGenerationStart?: () => void; // Notify parent when generation starts
   packagingState?: any; // PackagingState from backend
   isGenerating?: boolean; // Parent tracks if generation is in progress
   productState?: never;
@@ -357,6 +358,7 @@ function PackagingAIChatPanel({
   selectedPanelId, 
   packageModel,
   onTextureGenerated,
+  onGenerationStart,
   packagingState,
   isGenerating
 }: PackagingAIChatPanelProps) {
@@ -514,6 +516,9 @@ function PackagingAIChatPanel({
         prompt: prompt.trim(),
         package_type: packageModel.type,
       });
+
+      // Notify parent that generation is starting
+      onGenerationStart?.();
 
       const success = await generateAllTextures({
         prompt: prompt.trim(),
@@ -757,7 +762,7 @@ function PackagingAIChatPanel({
       {/* Prompt Input with Upload Button */}
       <div className="relative">
         <Textarea
-          placeholder="Describe style, colors, patterns..."
+        placeholder="Describe style, colors, patterns..."
           value={prompt}
           onChange={(e) => {
             const newValue = e.target.value;
@@ -776,14 +781,14 @@ function PackagingAIChatPanel({
         />
         
         {/* Upload Button Inside Textarea */}
-        <input
-          type="file"
+                <input
+                  type="file"
           id="reference-upload"
-          accept="image/*"
-          onChange={handleMockupUpload}
+                  accept="image/*"
+                  onChange={handleMockupUpload}
           className="hidden"
           disabled={isProcessing || showBulkGenerating}
-        />
+                />
         <label
           htmlFor="reference-upload"
           className={`absolute bottom-2 right-2 p-1.5 rounded border-2 border-black bg-background hover:bg-muted transition-colors cursor-pointer ${
@@ -796,17 +801,17 @@ function PackagingAIChatPanel({
       </div>
         
       {/* Reference Status */}
-      {referenceMockup && (
+                {referenceMockup && (
         <div className="flex items-center justify-between text-xs p-2 bg-green-50 border-2 border-green-600 rounded">
           <span className="font-medium text-green-700">Reference image loaded</span>
-          <button
-            onClick={() => setReferenceMockup(null)}
+                    <button
+                      onClick={() => setReferenceMockup(null)}
             className="font-semibold text-red-600 hover:underline"
-          >
-            Remove
-          </button>
+                    >
+                      Remove
+                    </button>
         </div>
-      )}
+          )}
         
       {/* Validation error */}
       {validationError && (
@@ -867,13 +872,8 @@ function PackagingAIChatPanel({
             <>
               <div className="flex items-center gap-2">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <p className="font-semibold">Generating all panels</p>
-              </div>
-              {packagingState?.generating_panel && (
-                <p className="text-muted-foreground">
-                  Current: {packagingState.generating_panel} panel
-                </p>
-              )}
+              <p className="font-semibold">Generating panels in parallel</p>
+            </div>
               {packagingState?.generating_panels && packagingState.generating_panels.length > 0 && (
                 <p className="text-muted-foreground">
                   {packagingState.generating_panels.length} panel(s) remaining

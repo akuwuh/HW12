@@ -4,8 +4,26 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || `Request failed with status ${response.status}`);
+    let errorMessage: string;
+    const contentType = response.headers.get("content-type");
+    
+    try {
+      if (contentType?.includes("application/json")) {
+        const errorData = await response.json();
+        errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
+      } else {
+        errorMessage = await response.text();
+      }
+    } catch (e) {
+      errorMessage = `Request failed with status ${response.status}`;
+    }
+    
+    // Provide user-friendly messages for common errors
+    if (response.status === 409 && errorMessage.includes("Generation already running")) {
+      errorMessage = "A product generation is already in progress. Please wait for it to complete or use the recover option.";
+    }
+    
+    throw new Error(errorMessage || `Request failed with status ${response.status}`);
   }
   return response.json() as Promise<T>;
 }

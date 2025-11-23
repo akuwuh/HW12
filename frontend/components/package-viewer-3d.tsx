@@ -144,7 +144,14 @@ const BoxPackage3D = React.memo(function BoxPackage3D({
           },
           undefined,
           (error) => {
-            console.error(`Failed to load texture for ${panelId}:`, error)
+            // Texture load failed - fallback to colored material
+            if (material.map) {
+              material.map.dispose()
+              material.map = null
+            }
+            material.color.set(color)
+            material.userData.textureUrl = null
+            material.needsUpdate = true
           }
         )
       }
@@ -315,7 +322,12 @@ const CylinderPackage3D = React.memo(function CylinderPackage3D({
         },
         undefined,
         (error) => {
-          console.error("Failed to load body texture:", error)
+          // Texture load failed - fallback to colored material
+          if (baseMaterial.map) baseMaterial.map.dispose()
+          baseMaterial.map = null
+          baseMaterial.color.set(color)
+          baseMaterial.userData.textureUrl = null
+          baseMaterial.needsUpdate = true
         }
       )
     } else if (!bodyTexture && baseMaterial.map) {
@@ -349,7 +361,12 @@ const CylinderPackage3D = React.memo(function CylinderPackage3D({
         },
         undefined,
         (error) => {
-          console.error("[CylinderPackage3D] Failed to load top texture:", error)
+          // Texture load failed - fallback to colored material
+          if (topMaterial.map) topMaterial.map.dispose()
+          topMaterial.map = null
+          topMaterial.color.set(color)
+          topMaterial.userData.textureUrl = null
+          topMaterial.needsUpdate = true
         }
       )
     } else if (!topTexture && topMaterial.map) {
@@ -383,7 +400,12 @@ const CylinderPackage3D = React.memo(function CylinderPackage3D({
         },
         undefined,
         (error) => {
-          console.error("[CylinderPackage3D] Failed to load bottom texture:", error)
+          // Texture load failed - fallback to colored material
+          if (bottomMaterial.map) bottomMaterial.map.dispose()
+          bottomMaterial.map = null
+          bottomMaterial.color.set(color)
+          bottomMaterial.userData.textureUrl = null
+          bottomMaterial.needsUpdate = true
         }
       )
     } else if (!bottomTexture && bottomMaterial.map) {
@@ -652,7 +674,13 @@ export const PackageViewer3D = React.forwardRef<PackageViewer3DRef, PackageViewe
         <Package3D {...props} wireframe={wireframe} autoRotate={autoRotate} />
       </Canvas>
 
-      {props.model.dielines && !props.hideDielineHud && <MiniDielineHud dielines={props.model.dielines} />}
+      {props.model.dielines && !props.hideDielineHud && (
+        <MiniDielineHud 
+          dielines={props.model.dielines} 
+          panels={props.model.panels}
+          panelTextures={props.panelTextures}
+        />
+      )}
     </div>
   )
 });

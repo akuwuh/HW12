@@ -28,6 +28,8 @@ class PanelGenerationService:
         panel_dimensions: dict,
         package_dimensions: dict,
         reference_mockup: Optional[str] = None,
+        workflow: str = "create",
+        old_texture_url: Optional[str] = None,
     ) -> Optional[str]:
         """Generate a texture for a specific panel using structured prompts with guardrails.
         
@@ -57,18 +59,22 @@ class PanelGenerationService:
             logger.info(f"[panel-gen] User prompt: {prompt[:100]}...")
             logger.info(f"[panel-gen] Using structured prompt template: {'WITH' if reference_mockup else 'WITHOUT'} reference mockup")
             
-            # Prepare reference images if mockup is provided
-            reference_images = [reference_mockup] if reference_mockup else None
+            # Prepare reference images
+            # Priority: old_texture_url (for iteration) > reference_mockup (user upload)
+            if workflow == "edit" and old_texture_url:
+                reference_images = [old_texture_url]
+            elif reference_mockup:
+                reference_images = [reference_mockup]
+            else:
+                reference_images = None
             
-            # Use Gemini to generate the texture
-            # For panel textures, we want flat designs suitable for wrapping
-            # Pass is_texture=True to bypass "product photograph" enhancement
+            # Use Gemini with appropriate workflow
             images = await self.gemini_service.generate_product_images(
                 prompt=enhanced_prompt,
-                workflow="create",  # Always create new designs
+                workflow=workflow,  # "create" or "edit"
                 image_count=1,
                 reference_images=reference_images,
-                is_texture=True,  # This is a texture, not a product photo
+                is_texture=True,
             )
             
             if images and len(images) > 0:
@@ -124,21 +130,27 @@ class PanelGenerationService:
                 user_prompt=user_prompt,
             )
         
-        # Build the master prompt with all context
+        # Build appropriate prompt based on context
         try:
-            prompt = panel_prompt_builder.build_master_prompt(
-                face_name=panel_id,
-                panel_width_mm=panel_width,
-                panel_height_mm=panel_height,
-                box_width_mm=box_width,
-                box_height_mm=box_height,
-                box_depth_mm=box_depth,
-                user_prompt=user_prompt,
-                has_reference_mockup=has_reference,
-            )
+            # If has reference (3D mockup), use extraction template (same for create and edit)
+            if has_reference:
+                # Both create and edit use the same extraction prompt
+                # The difference is in the 3D mockup generation (phase 1), not panel extraction (phase 2)
+                prompt = panel_prompt_builder.build_mockup_extraction_prompt(
+                    face_name=panel_id,
+                    panel_width_mm=panel_width,
+                    panel_height_mm=panel_height,
+                )
+            else:
+                # No reference, use simple prompt with full context
+                prompt = panel_prompt_builder.build_simple_prompt(
+                    face_name=panel_id,
+                    panel_width_mm=panel_width,
+                    panel_height_mm=panel_height,
+                    user_prompt=user_prompt,
+                )
             return prompt
         except ValueError as e:
-            # Prompt validation failed - re-raise with context
             logger.error(f"[panel-gen] Prompt validation failed: {e}")
             raise ValueError(f"Your prompt needs improvement: {e}")
     
