@@ -140,6 +140,7 @@ class PanelGenerationService:
                     face_name=panel_id,
                     panel_width_mm=panel_width,
                     panel_height_mm=panel_height,
+                    user_prompt=user_prompt,
                 )
             else:
                 # No reference, use simple prompt with full context

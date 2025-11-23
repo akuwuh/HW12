@@ -110,6 +110,9 @@ USER CUSTOMIZATION
     # Universal template for extracting panels from 3D mockup (both create and edit flows)
     MOCKUP_EXTRACTION_TEMPLATE = """Extract the {face_name} panel design from the 3D product mockup.
 
+DESIGN CONCEPT (from user):
+{user_prompt}
+
 Panel: {face_name}
 Size: {panel_width_mm}mm × {panel_height_mm}mm
 Aspect Ratio: {aspect_ratio_lock} (maintain exactly)
@@ -123,12 +126,13 @@ CRITICAL - FULL BLEED REQUIREMENTS:
 
 TASK:
 1. Study the 3D mockup to see the {face_name} panel design
-2. Extract that exact design as a flat texture
-3. Scale it to fill the ENTIRE frame edge-to-edge
-4. Ensure zero white space around edges
+2. Understand the design concept from the user request above
+3. Extract that design as a flat texture that matches the user's intent
+4. Scale it to fill the ENTIRE frame edge-to-edge
+5. Ensure zero white space around edges
 
 OUTPUT:
-Flat, print-ready panel texture at {aspect_ratio_lock} ratio with complete edge-to-edge coverage."""
+Flat, print-ready panel texture at {aspect_ratio_lock} ratio with complete edge-to-edge coverage that accurately reflects the user's design request."""
 
     # Simple texture template (for basic requests without reference mockup)
     SIMPLE_TEMPLATE = """Generate a flat packaging panel texture with the following specifications:
@@ -441,8 +445,14 @@ OUTPUT: Generate exactly ONE flat panel texture at {aspect_ratio_lock} aspect ra
         face_name: str,
         panel_width_mm: float,
         panel_height_mm: float,
+        user_prompt: str,
     ) -> str:
         """Build prompt for extracting panels from 3D mockup (works for both create and edit flows)."""
+        # Validate user prompt
+        is_valid, error = self.validate_user_prompt(user_prompt)
+        if not is_valid:
+            raise ValueError(error)
+        
         aspect_ratio = self.calculate_aspect_ratio(panel_width_mm, panel_height_mm)
         
         return self.MOCKUP_EXTRACTION_TEMPLATE.format(
@@ -450,6 +460,7 @@ OUTPUT: Generate exactly ONE flat panel texture at {aspect_ratio_lock} aspect ra
             panel_width_mm=int(panel_width_mm),
             panel_height_mm=int(panel_height_mm),
             aspect_ratio_lock=aspect_ratio,
+            user_prompt=user_prompt,
         )
 
 
