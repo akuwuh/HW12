@@ -211,7 +211,9 @@ async def generate_all_panels(request: BulkPanelGenerateRequest):
         final_state.generating_panels = []
         
         if failed_panels:
-            error_msg = f"Failed to generate textures for panels: {', '.join(failed_panels)}"
+            succeeded_count = len(generated_textures)
+            total_count = len(request.panel_ids)
+            error_msg = f"Generated {succeeded_count}/{total_count} textures. Failed: {', '.join(failed_panels)} (old textures retained)"
             final_state.last_error = error_msg
             logger.error(f"[packaging-router] Bulk generation completed with errors: {error_msg}")
         else:

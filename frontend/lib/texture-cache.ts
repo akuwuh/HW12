@@ -7,6 +7,7 @@
 
 const CACHE_NAME = "packaging-textures";
 const blobUrlCache = new Map<string, string>(); // panelId -> stable blob URL
+const urlTracker = new Map<string, string>(); // panelId -> remoteUrl (to detect changes)
 
 /**
  * Get cached texture URL for a panel.
@@ -20,9 +21,15 @@ export async function getCachedTextureUrl(
   panelId: string,
   remoteUrl: string
 ): Promise<string> {
+  // Check if URL changed - if so, invalidate cache
+  const cachedUrl = urlTracker.get(panelId);
+  if (cachedUrl && cachedUrl !== remoteUrl) {
+    // New texture for same panel - clear old cache
+    await clearTextureCache(panelId);
+  }
+  
   // Tier 2: Check in-memory cache first (stable blob URL)
-  if (blobUrlCache.has(panelId)) {
-    console.log(`[TextureCache] 🔄 Reusing blob URL for ${panelId}`);
+  if (blobUrlCache.has(panelId) && urlTracker.get(panelId) === remoteUrl) {
     return blobUrlCache.get(panelId)!;
   }
   
@@ -32,15 +39,14 @@ export async function getCachedTextureUrl(
   const cached = await cache.match(cacheKey);
   
   if (cached) {
-    console.log(`[TextureCache] 💾 Cache hit for ${panelId}`);
     const blob = await cached.blob();
     const blobUrl = URL.createObjectURL(blob);
     blobUrlCache.set(panelId, blobUrl);
+    urlTracker.set(panelId, remoteUrl);
     return blobUrl;
   }
   
   // Cache miss: Fetch and cache
-  console.log(`[TextureCache] 🌐 Fetching and caching ${panelId}`);
   const response = await fetch(remoteUrl);
   
   if (!response.ok) {
@@ -55,6 +61,7 @@ export async function getCachedTextureUrl(
   // Create and store blob URL for in-memory cache
   const blobUrl = URL.createObjectURL(blob);
   blobUrlCache.set(panelId, blobUrl);
+  urlTracker.set(panelId, remoteUrl); // Track URL for change detection
   
   return blobUrl;
 }
@@ -66,8 +73,6 @@ export async function getCachedTextureUrl(
  */
 export async function clearTextureCache(panelId?: string): Promise<void> {
   if (panelId) {
-    console.log(`[TextureCache] 🗑️ Clearing cache for ${panelId}`);
-    
     // Revoke blob URL to free memory
     const blobUrl = blobUrlCache.get(panelId);
     if (blobUrl) {
@@ -75,17 +80,17 @@ export async function clearTextureCache(panelId?: string): Promise<void> {
     }
     
     blobUrlCache.delete(panelId);
+    urlTracker.delete(panelId);
     const cache = await caches.open(CACHE_NAME);
     await cache.delete(`texture_${panelId}`);
   } else {
-    console.log(`[TextureCache] 🗑️ Clearing all texture cache`);
-    
     // Revoke all blob URLs
     for (const blobUrl of blobUrlCache.values()) {
       URL.revokeObjectURL(blobUrl);
     }
     
     blobUrlCache.clear();
+    urlTracker.clear();
     await caches.delete(CACHE_NAME);
   }
 }

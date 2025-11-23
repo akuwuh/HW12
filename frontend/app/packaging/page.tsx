@@ -334,45 +334,42 @@ function Packaging() {
   useEffect(() => {
     if (!isGenerating) return;
 
-    console.log("[Packaging] 🔄 Starting polling for generation completion");
-    let pollCount = 0;
-    let timeoutId: NodeJS.Timeout;
-
-    const poll = async () => {
+    const pollInterval = setInterval(async () => {
       try {
-        const status = await getPackagingStatus();
-        if (!status.in_progress) {
-          console.log("[Packaging] ✅ Generation complete, re-hydrating");
-          await hydrateFromBackend(); // Re-hydrate to get new textures
+        // Fetch fresh state to update progress display in real-time
+        const freshState = await getPackagingState();
+        setPackagingState(freshState);
+        
+        if (!freshState.in_progress && !freshState.bulk_generation_in_progress) {
+          clearInterval(pollInterval);
           setIsGenerating(false);
-          return;
+          
+          // Force complete texture reload
+          const currentShapeState = packageType === 'cylinder' ? freshState.cylinder_state : freshState.box_state;
+          const newTextures: Partial<Record<PanelId, string>> = {};
+          
+          for (const [panelId, texture] of Object.entries(currentShapeState?.panel_textures || {})) {
+            if (packageModel && packageModel.panels.some(p => p.id === panelId)) {
+              try {
+                const cachedUrl = await getCachedTextureUrl(panelId, texture.texture_url);
+                newTextures[panelId as PanelId] = cachedUrl;
+              } catch (err) {
+                // Skip
+              }
+            }
+          }
+          
+          // Force update even if textures look the same
+          setPanelTextures({});
+          setTimeout(() => setPanelTextures(newTextures), 50);
         }
-
-        // Continue polling with exponential backoff
-        pollCount++;
-        // Start at 2s, increase to max 10s, with jitter
-        const baseDelay = Math.min(2000 * Math.pow(1.5, pollCount - 1), 10000);
-        const jitter = Math.random() * 1000; // Add up to 1s jitter
-        const delay = baseDelay + jitter;
-
-        console.log(`[Packaging] 🔄 Still generating... next poll in ${Math.round(delay/1000)}s (attempt ${pollCount})`);
-        timeoutId = setTimeout(poll, delay);
-
       } catch (err) {
-        console.error("[Packaging] ❌ Polling error:", err);
-        // On error, retry with shorter delay
-        timeoutId = setTimeout(poll, 5000);
+        // Skip
       }
-    };
+    }, 2000);
 
-    // Start first poll immediately
-    poll();
-
-    return () => {
-      console.log("[Packaging] 🛑 Stopping polling");
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [isGenerating, hydrateFromBackend]);
+    return () => clearInterval(pollInterval);
+  }, [isGenerating, packageType, packageModel]);
 
   useEffect(() => {
     // Skip if not yet hydrated (hydration handles model generation)
@@ -487,25 +484,32 @@ function Packaging() {
     });
   }, []);
 
-  const handleTextureGenerated = useCallback((panelId: PanelId, textureUrl: string) => {
-    setPanelTextures((prev) => ({ ...prev, [panelId]: textureUrl }));
-    
-    setPackageModel((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        panelStates: {
-          ...prev.panelStates,
-          [panelId]: {
-            ...prev.panelStates[panelId],
-            textureUrl,
+  const handleTextureGenerated = useCallback(async (panelId: PanelId, textureUrl: string) => {
+    // Cache the texture first
+    try {
+      const cachedUrl = await getCachedTextureUrl(panelId, textureUrl);
+      
+      setPanelTextures((prev) => ({ ...prev, [panelId]: cachedUrl }));
+      
+      setPackageModel((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          panelStates: {
+            ...prev.panelStates,
+            [panelId]: {
+              ...prev.panelStates[panelId],
+              textureUrl: cachedUrl,
+            },
           },
-        },
-      };
-    });
+        };
+      });
 
-    setShowTextureNotification({ panelId, show: true });
-    setTimeout(() => setShowTextureNotification(null), 3000);
+      setShowTextureNotification({ panelId, show: true });
+      setTimeout(() => setShowTextureNotification(null), 3000);
+    } catch (err) {
+      console.error(`Failed to cache texture for ${panelId}:`, err);
+    }
   }, []);
 
   const surfaceArea = useMemo(() => {

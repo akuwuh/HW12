@@ -106,7 +106,7 @@ const BoxPackage3D = React.memo(function BoxPackage3D({
       if (!textureUrl && material.map) {
         material.map.dispose()
         material.map = null
-        material.color.setHex(color)
+        material.color.set(color)
         material.userData.textureUrl = null
         material.needsUpdate = true
         return
@@ -114,7 +114,6 @@ const BoxPackage3D = React.memo(function BoxPackage3D({
 
       // Load texture asynchronously if available and different
       if (textureUrl && (!material.map || material.userData.textureUrl !== textureUrl)) {
-        console.log(`[BoxPackage3D] 🎨 Loading texture for ${panelId}`)
         textureLoader.load(
           textureUrl,
           (texture) => {
@@ -141,11 +140,10 @@ const BoxPackage3D = React.memo(function BoxPackage3D({
             material.color.setHex(0xffffff) // Set to white so texture shows true colors
             material.userData.textureUrl = textureUrl // Track current URL
             material.needsUpdate = true
-            console.log(`[BoxPackage3D] ✅ Texture applied to ${panelId}`)
           },
           undefined,
           (error) => {
-            console.error(`[BoxPackage3D] ❌ Failed to load texture for ${panelId}:`, error)
+            console.error(`Failed to load texture for ${panelId}:`, error)
           }
         )
       }
@@ -295,7 +293,6 @@ const CylinderPackage3D = React.memo(function CylinderPackage3D({
     // Load body texture
     const bodyTexture = panelTextures["body"]
     if (bodyTexture && (!baseMaterial.map || baseMaterial.userData.textureUrl !== bodyTexture)) {
-      console.log("[CylinderPackage3D] 🎨 Loading body texture:", bodyTexture)
       textureLoader.load(
         bodyTexture,
         (texture) => {
@@ -314,17 +311,16 @@ const CylinderPackage3D = React.memo(function CylinderPackage3D({
           baseMaterial.color.setHex(0xffffff)
           baseMaterial.userData.textureUrl = bodyTexture // Track current URL
           baseMaterial.needsUpdate = true
-          console.log("[CylinderPackage3D] ✅ Body texture applied")
         },
         undefined,
         (error) => {
-          console.error("[CylinderPackage3D] ❌ Failed to load body texture:", error)
+          console.error("Failed to load body texture:", error)
         }
       )
     } else if (!bodyTexture && baseMaterial.map) {
       baseMaterial.map.dispose()
       baseMaterial.map = null
-      baseMaterial.color.setHex(color)
+      baseMaterial.color.set(color)
       baseMaterial.userData.textureUrl = null
       baseMaterial.needsUpdate = true
     }
@@ -358,7 +354,7 @@ const CylinderPackage3D = React.memo(function CylinderPackage3D({
     } else if (!topTexture && topMaterial.map) {
       topMaterial.map.dispose()
       topMaterial.map = null
-      topMaterial.color.setHex(color)
+      topMaterial.color.set(color)
       topMaterial.userData.textureUrl = null
       topMaterial.needsUpdate = true
     }
@@ -392,7 +388,7 @@ const CylinderPackage3D = React.memo(function CylinderPackage3D({
     } else if (!bottomTexture && bottomMaterial.map) {
       bottomMaterial.map.dispose()
       bottomMaterial.map = null
-      bottomMaterial.color.setHex(color)
+      bottomMaterial.color.set(color)
       bottomMaterial.userData.textureUrl = null
       bottomMaterial.needsUpdate = true
     }
