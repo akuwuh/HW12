@@ -16,10 +16,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "atelier",
+  title: "Packing",
   description: "Packaging Design Tool",
   icons: {
     icon: "/logo.svg",
+    shortcut: "/logo.svg",
+    apple: "/logo.svg",
   },
 };
 
