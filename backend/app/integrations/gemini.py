@@ -5,8 +5,8 @@ from typing import Dict, Any, List, Optional
 
 from pydantic import ValidationError
 
+from google import genai
 from google.genai import types
-from google.genai import Client as GenaiClient
 
 from app.core.config import settings
 
@@ -29,7 +29,7 @@ class GeminiImageService:
     
     def __init__(self):
         if settings.GEMINI_API_KEY:
-            self.client = GenaiClient(api_key=settings.GEMINI_API_KEY)
+            self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
         else:
             self.client = None
             logger.warning("Gemini API key not found for Image Service")
@@ -182,25 +182,34 @@ class GeminiImageService:
             part = _image_to_part(reference_images[0])
             if part:
                 contents.insert(1, part)  # Reference image after enhanced prompt
-        config_kwargs: Dict[str, Any] = {}
+        # We use model_construct to BYPASS Pydantic validation because the SDK v1.47.0 
+        # is missing fields like 'thinking_level' and 'image_size' that the API supports.
+        
+        thinking_cfg = None
         if thinking_level:
-            # Per Gemini 3.0 Pro Image Preview docs, thinking_level is "low" or "high"
-            config_kwargs["thinking_config"] = types.ThinkingConfig(
+            # Create ThinkingConfig with extra fields allowed
+            thinking_cfg = types.ThinkingConfig.model_construct(
                 thinking_level=thinking_level
             )
-        # Force 1:1 aspect ratio for product images (optimal for 3D reconstruction)
+            
+        image_cfg = None
         image_config_kwargs: Dict[str, Any] = {"aspect_ratio": "1:1"}
         if self.image_size:
             image_config_kwargs["image_size"] = self.image_size
+        
         if image_config_kwargs:
-            try:
-                config_kwargs["image_config"] = types.ImageConfig(**image_config_kwargs)
-            except (AttributeError, ValidationError, TypeError) as exc:
-                logger.warning("Gemini image config not applied: %s", exc)
+            image_cfg = types.ImageConfig.model_construct(**image_config_kwargs)
+
+        # Construct main config bypassing validation
+        config = types.GenerateContentConfig.model_construct(
+            thinking_config=thinking_cfg,
+            image_config=image_cfg
+        )
+
         response = self.client.models.generate_content(
             model=model,
             contents=contents,
-            config=types.GenerateContentConfig(**config_kwargs) if config_kwargs else None,
+            config=config,
         )
         return _extract_first_image(response)
 

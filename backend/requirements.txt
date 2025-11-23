@@ -5,8 +5,7 @@ python-dotenv
 pydantic-settings
 pydantic
 typing-extensions
-google-generativeai
-google-genai>=0.6.0
+google-genai>=1.47.0
 redis
 pytest
 pytest-asyncio
