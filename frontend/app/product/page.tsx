@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -15,21 +15,20 @@ import { AIChatPanel } from "@/components/AIChatPanel";
 import { useLoading } from "@/providers/LoadingProvider";
 import { getProductState } from "@/lib/product-api";
 import { ProductState } from "@/lib/product-types";
-import { getCachedModelUrl, clearCachedModel } from "@/lib/model-cache";
+import { getCachedModelUrl } from "@/lib/model-cache";
 
-export default function ProductPage() {
+function ProductPage() {
   const { stopLoading } = useLoading();
   const [productState, setProductState] = useState<ProductState | null>(null);
   const [currentModelUrl, setCurrentModelUrl] = useState<string>();
-  const latestIterationIdRef = useRef<string | null>(null);
-  const hasHydratedRef = useRef(false);
-  const [selectedColor, setSelectedColor] = useState("#60a5fa");
-  const [selectedTexture, setSelectedTexture] = useState("matte");
   const [lightingMode, setLightingMode] = useState<"studio" | "sunset" | "warehouse" | "forest">("studio");
   const [displayMode, setDisplayMode] = useState<"solid" | "wireframe">("solid");
   const [zoomAction, setZoomAction] = useState<"in" | "out" | null>(null);
   const [autoRotate, setAutoRotate] = useState(true);
   const [isEditInProgress, setIsEditInProgress] = useState(false);
+
+  const latestIterationIdRef = useRef<string | null>(null);
+  const hasHydratedRef = useRef(false);
 
   const applyModelUrl = useCallback((url?: string, iterationId?: string) => {
     if (!url) return;
@@ -39,16 +38,14 @@ export default function ProductPage() {
     }
   }, []);
 
-
   const hydrateProductState = useCallback(async () => {
     try {
       const state = await getProductState();
       const latestIteration = state.iterations.at(-1);
       const iterationId = latestIteration?.id;
       
-      // Early exit if we're already showing this iteration
       if (iterationId && latestIterationIdRef.current === iterationId) {
-        setProductState(state); // Still update state for UI
+        setProductState(state);
         return;
       }
       
@@ -74,57 +71,29 @@ export default function ProductPage() {
       stopLoading();
       return;
     }
-    
     hasHydratedRef.current = true;
     hydrateProductState().finally(() => stopLoading());
-    
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reset zoom action after it's been processed
   useEffect(() => {
-    if (zoomAction) {
-      const timer = setTimeout(() => setZoomAction(null), 200);
-      return () => clearTimeout(timer);
-    }
+    if (!zoomAction) return;
+    const timer = setTimeout(() => setZoomAction(null), 200);
+    return () => clearTimeout(timer);
   }, [zoomAction]);
 
-  // Cleanup on unmount (when navigating away)
-  useEffect(() => {
-    return () => {
-      console.log('[ProductPage] Cleaning up on unmount');
-      // Clear any cached model to free memory
-      if (latestIterationIdRef.current) {
-        clearCachedModel(latestIterationIdRef.current);
-      }
-    };
-  }, []);
-
-  const colors = [
-    { name: "Blue", value: "#60a5fa" },
-    { name: "White", value: "#ffffff" },
-    { name: "Black", value: "#000000" },
-    { name: "Red", value: "#ef4444" },
-    { name: "Green", value: "#22c55e" },
-    { name: "Yellow", value: "#eab308" },
-  ];
-
   return (
-    <div className="h-screen bg-background flex flex-col overflow-hidden relative">
+    <div className="h-screen bg-background flex flex-col overflow-hidden">
       <div className="flex-1 flex overflow-hidden">
-        {/* 3D Viewer */}
         <div className="flex-1 relative bg-muted/30">
           <ModelViewer
             modelUrl={currentModelUrl}
-            selectedColor={selectedColor}
-            selectedTexture={selectedTexture}
             lightingMode={lightingMode}
             wireframe={displayMode === "wireframe"}
             zoomAction={zoomAction}
             autoRotate={autoRotate}
           />
 
-          {/* Floating Controls */}
           <div className="absolute top-4 right-4 flex flex-col gap-2">
             <Button size="icon" variant="secondary" onClick={() => setZoomAction("in")}>
               <ZoomIn className="w-4 h-4" />
@@ -191,3 +160,5 @@ export default function ProductPage() {
     </div>
   );
 }
+
+export default memo(ProductPage);

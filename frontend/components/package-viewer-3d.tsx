@@ -12,7 +12,7 @@ interface PackageViewer3DProps {
   selectedPanelId?: PanelId | null
   onPanelSelect?: (panelId: PanelId | null) => void
   color?: string
-  panelTextures?: Record<PanelId, string>
+  panelTextures?: Partial<Record<PanelId, string>>
 }
 
 function BoxPackage3D({
@@ -26,7 +26,7 @@ function BoxPackage3D({
   selectedPanelId?: PanelId | null
   onPanelSelect?: (panelId: PanelId | null) => void
   color?: string
-  panelTextures?: Record<PanelId, string>
+  panelTextures?: Partial<Record<PanelId, string>>
 }) {
   const meshRef = useRef<THREE.Mesh>(null)
   const { width, height, depth } = dimensions
@@ -95,18 +95,6 @@ function BoxPackage3D({
     })
   }, [panelTextures, selectedPanelId, color])
 
-  // Cleanup materials and textures on unmount
-  useEffect(() => {
-    return () => {
-      materials.forEach((material) => {
-        if (material.map) {
-          material.map.dispose();
-        }
-        material.dispose();
-      });
-    };
-  }, [materials]);
-
   const handleClick = (event: any) => {
     if (!onPanelSelect) return
 
@@ -169,7 +157,7 @@ function CylinderPackage3D({
   selectedPanelId?: PanelId | null
   onPanelSelect?: (panelId: PanelId | null) => void
   color?: string
-  panelTextures?: Record<PanelId, string>
+  panelTextures?: Partial<Record<PanelId, string>>
 }) {
   const groupRef = useRef<THREE.Group>(null)
   const { width, height } = dimensions
@@ -277,18 +265,6 @@ function CylinderPackage3D({
     
     return material
   }, [color, panelTextures])
-
-  // Cleanup materials and textures on unmount
-  useEffect(() => {
-    return () => {
-      [baseMaterial, selectedMaterial, topMaterial, bottomMaterial].forEach((material) => {
-        if (material.map) {
-          material.map.dispose();
-        }
-        material.dispose();
-      });
-    };
-  }, [baseMaterial, selectedMaterial, topMaterial, bottomMaterial]);
 
   const handleBodyClick = (event: THREE.Event) => {
     if (!onPanelSelect) return
@@ -408,13 +384,6 @@ function Package3D({ model, selectedPanelId, onPanelSelect, color, panelTextures
 }
 
 export function PackageViewer3D(props: PackageViewer3DProps) {
-  // Cleanup effect to dispose of textures on unmount
-  useEffect(() => {
-    return () => {
-      // Cleanup will be handled by Canvas unmount
-    };
-  }, []);
-
   return (
     <div className="w-full h-full bg-gradient-to-br from-slate-50 to-slate-100 rounded-lg border border-border overflow-hidden relative">
       <Canvas 
