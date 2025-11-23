@@ -21,6 +21,7 @@ function ProductPage() {
   const { stopLoading } = useLoading();
   const [productState, setProductState] = useState<ProductState | null>(null);
   const [currentModelUrl, setCurrentModelUrl] = useState<string>();
+  const [modelKey, setModelKey] = useState<string>("");
   const [lightingMode, setLightingMode] = useState<"studio" | "sunset" | "warehouse" | "forest">("studio");
   const [displayMode, setDisplayMode] = useState<"solid" | "wireframe">("solid");
   const [zoomAction, setZoomAction] = useState<"in" | "out" | null>(null);
@@ -31,9 +32,11 @@ function ProductPage() {
 
   const applyModelUrl = useCallback((url?: string, iterationId?: string) => {
     if (!url) return;
+    console.log(`[ProductPage] 🔄 Applying new model: ${iterationId}`);
     setCurrentModelUrl(url);
     if (iterationId) {
       latestIterationIdRef.current = iterationId;
+      setModelKey(iterationId); // Force clean remount with new key
     }
   }, []);
 
@@ -81,6 +84,7 @@ function ProductPage() {
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 relative bg-muted/30">
           <ModelViewer
+            key={modelKey}
             modelUrl={currentModelUrl}
             lightingMode={lightingMode}
             wireframe={displayMode === "wireframe"}
