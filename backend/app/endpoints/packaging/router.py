@@ -51,10 +51,8 @@ async def generate_panel_texture(request: PanelGenerateRequest):
     
     state = get_packaging_state()
     
-    # Clear old texture for this panel to avoid polling confusion
-    if request.panel_id in state.panel_textures:
-        logger.info(f"[packaging-router] Clearing old texture for panel {request.panel_id}")
-        del state.panel_textures[request.panel_id]
+    # DON'T clear old texture - keep it visible until new one is ready
+    # The new texture will atomically replace the old one when generation completes
     
     # Update state with current package info
     state.package_type = request.package_type
@@ -126,11 +124,9 @@ async def generate_all_panels(request: BulkPanelGenerateRequest):
     
     state = get_packaging_state()
     
-    # Clear old textures for all panels being regenerated
-    for panel_id in request.panel_ids:
-        if panel_id in state.panel_textures:
-            logger.info(f"[packaging-router] Clearing old texture for panel {panel_id}")
-            del state.panel_textures[panel_id]
+    # DON'T clear old textures - keep them visible during generation
+    # New textures will atomically replace old ones when all panels complete
+    # This allows reload during generation to still show previous textures
     
     # Update state for bulk generation
     state.package_type = request.package_type
