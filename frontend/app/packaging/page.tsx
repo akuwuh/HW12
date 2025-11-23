@@ -22,6 +22,7 @@ import {
   updateModelFromDielines,
   type PackageModel,
   type PanelId,
+  type DielinePath,
 } from "@/lib/packaging-types";
 
 const PACKAGE_TYPES: readonly { type: PackageType; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
@@ -38,9 +39,7 @@ function Packaging() {
   
   const [packageType, setPackageType] = useState<PackageType>("box");
   const [dimensions, setDimensions] = useState<PackageDimensions>(DEFAULT_PACKAGE_DIMENSIONS.box);
-  const [packageModel, setPackageModel] = useState<PackageModel>(() =>
-    generatePackageModel("box", DEFAULT_PACKAGE_DIMENSIONS.box)
-  );
+  const [packageModel, setPackageModel] = useState<PackageModel | null>(null); // Start with null until hydrated
   const [selectedPanelId, setSelectedPanelId] = useState<PanelId | null>(null);
   const [activeView, setActiveView] = useState<"2d" | "3d">("3d");
   const [panelTextures, setPanelTextures] = useState<Partial<Record<PanelId, string>>>({});
@@ -48,7 +47,7 @@ function Packaging() {
 
   /**
    * Hydrate state from backend on mount/reload.
-   * This is the key to persistence!
+   * Loads the saved state for the current shape type.
    */
   const hydrateFromBackend = useCallback(async () => {
     try {
@@ -56,32 +55,26 @@ function Packaging() {
       const state = await getPackagingState();
       setPackagingState(state);
       
-      // Validate dimensions before using them
-      const hasValidDimensions = 
-        state.package_dimensions &&
-        typeof state.package_dimensions.width === 'number' &&
-        typeof state.package_dimensions.height === 'number' &&
-        typeof state.package_dimensions.depth === 'number';
+      const targetType = state.current_package_type || 'box';
+      const shapeState = targetType === 'cylinder' ? state.cylinder_state : state.box_state;
       
-      const targetType = state.package_type || 'box';
-      const targetDimensions = hasValidDimensions
-        ? state.package_dimensions as PackageDimensions
-        : DEFAULT_PACKAGE_DIMENSIONS[targetType];
+      // Use dimensions from the shape's state
+      const targetDimensions = shapeState.dimensions || DEFAULT_PACKAGE_DIMENSIONS[targetType];
       
       console.log("[Packaging] 📦 Restoring type:", targetType, "dimensions:", targetDimensions);
+      console.log("[Packaging] 📊 Full state - Box:", state.box_state, "Cylinder:", state.cylinder_state);
       
-      // Update model FIRST, before textures
+      // Generate model for current shape type
       const newModel = generatePackageModel(targetType, targetDimensions);
       setPackageModel(newModel);
       
-      // Then update type and dimensions
+      // Update type and dimensions
       setPackageType(targetType);
       setDimensions(targetDimensions);
       
-      // Finally restore textures (now matching the correct model)
+      // Restore textures for current shape type
       const cachedTextures: Partial<Record<PanelId, string>> = {};
-      for (const [panelId, texture] of Object.entries(state.panel_textures)) {
-        // Only load textures for panels that exist in the new model
+      for (const [panelId, texture] of Object.entries(shapeState.panel_textures || {})) {
         if (newModel.panels.some(p => p.id === panelId)) {
           try {
             const cachedUrl = await getCachedTextureUrl(panelId, texture.texture_url);
@@ -95,12 +88,6 @@ function Packaging() {
       if (Object.keys(cachedTextures).length > 0) {
         console.log("[Packaging] 🎨 Restored textures:", Object.keys(cachedTextures));
         setPanelTextures(cachedTextures);
-      }
-      
-      // If backend had empty/invalid dimensions, persist the defaults we're using
-      if (!hasValidDimensions) {
-        console.log("[Packaging] 💾 Persisting initial defaults to backend");
-        await updatePackagingDimensions(targetType, targetDimensions);
       }
       
       // Check if generation is in progress
@@ -162,23 +149,49 @@ function Packaging() {
     setSelectedPanelId(null);
   }, [packageType, dimensions.width, dimensions.height, dimensions.depth, isHydrated]);
   const handlePackageTypeChange = useCallback(async (type: PackageType) => {
-    console.log("[Packaging] 📦 Changing package type to:", type);
+    if (!packagingState) return;
+    
+    console.log("[Packaging] 📦 Switching from", packageType, "to", type);
+    
+    // Get the saved state for the target shape type
+    const targetState = type === 'cylinder' ? packagingState.cylinder_state : packagingState.box_state;
+    const targetDimensions = targetState.dimensions || DEFAULT_PACKAGE_DIMENSIONS[type];
+    
+    console.log("[Packaging] 🔄 Loading saved state for", type, ":", targetDimensions);
+    
+    // Generate model for target shape with its saved dimensions
+    const newModel = generatePackageModel(type, targetDimensions);
+    setPackageModel(newModel);
+    
+    // Update local state
     setPackageType(type);
-    const newDimensions = DEFAULT_PACKAGE_DIMENSIONS[type];
-    setDimensions(newDimensions);
+    setDimensions(targetDimensions);
     setSelectedPanelId(null);
     
-    // Persist to backend
+    // Load textures for target shape
+    const cachedTextures: Partial<Record<PanelId, string>> = {};
+    for (const [panelId, texture] of Object.entries(targetState.panel_textures || {})) {
+      if (newModel.panels.some(p => p.id === panelId)) {
+        try {
+          const cachedUrl = await getCachedTextureUrl(panelId, texture.texture_url);
+          cachedTextures[panelId as PanelId] = cachedUrl;
+        } catch (err) {
+          console.error(`[Packaging] ❌ Failed to load texture for ${panelId}:`, err);
+        }
+      }
+    }
+    setPanelTextures(cachedTextures);
+    
+    // Persist type switch to backend
     try {
-      await updatePackagingDimensions(type, newDimensions);
-      console.log("[Packaging] ✅ Persisted package type change");
+      await updatePackagingDimensions(type, targetDimensions);
+      console.log("[Packaging] ✅ Persisted package type switch");
     } catch (err: any) {
       console.error("[Packaging] ❌ Failed to save package type:", err);
-      console.error("[Packaging] Error details:", err.message);
       setSaveError(`Failed to save: ${err.message}`);
       setTimeout(() => setSaveError(null), 5000);
     }
-  }, []);
+  }, [packagingState, packageType]);
 
   const handleDimensionChange = useCallback(async (key: keyof PackageDimensions, value: number) => {
     const validValue = isNaN(value) || value < 0 ? 0 : value;
@@ -198,8 +211,11 @@ function Packaging() {
     });
   }, [packageType]);
 
-  const handleDielineChange = useCallback((newDielines: typeof packageModel.dielines) => {
-    setPackageModel((prev) => updateModelFromDielines(prev, newDielines));
+  const handleDielineChange = useCallback((newDielines: DielinePath[]) => {
+    setPackageModel((prev) => {
+      if (!prev) return prev;
+      return updateModelFromDielines(prev, newDielines);
+    });
   }, []);
 
   const handleTextureGenerated = useCallback((panelId: PanelId, textureUrl: string) => {
@@ -208,16 +224,19 @@ function Packaging() {
     // Optimistic local update
     setPanelTextures((prev) => ({ ...prev, [panelId]: textureUrl }));
     
-    setPackageModel((prev) => ({
-      ...prev,
-      panelStates: {
-        ...prev.panelStates,
-        [panelId]: {
-          ...prev.panelStates[panelId],
-          textureUrl,
+    setPackageModel((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        panelStates: {
+          ...prev.panelStates,
+          [panelId]: {
+            ...prev.panelStates[panelId],
+            textureUrl,
+          },
         },
-      },
-    }));
+      };
+    });
 
     // Backend already saved the texture, just show notification
     setShowTextureNotification({ panelId, show: true });
@@ -237,6 +256,18 @@ function Packaging() {
       ? Math.round(width * height * depth)
       : Math.round(Math.PI * (width / 2) ** 2 * height);
   }, [packageType, dimensions]);
+
+  // Show loading state until hydrated
+  if (!isHydrated || !packageModel) {
+    return (
+      <div className="h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading packaging state...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
