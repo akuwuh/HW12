@@ -1,9 +1,10 @@
 "use client"
 
-import { useRef, useMemo } from "react"
+import { useRef, useMemo, useEffect } from "react"
 import { Canvas, useFrame } from "@react-three/fiber"
 import type { ThreeEvent } from "@react-three/fiber"
 import { OrbitControls, PerspectiveCamera, Environment } from "@react-three/drei"
+import { OrbitControls as OrbitControlsImpl } from "three-stdlib"
 import * as THREE from "three"
 import type { PackageModel, PanelId } from "@/lib/packaging-types"
 import { MiniDielineHud } from "@/components/mini-dieline-hud"
@@ -14,6 +15,10 @@ interface PackageViewer3DProps {
   onPanelSelect?: (panelId: PanelId | null) => void
   color?: string
   panelTextures?: Partial<Record<PanelId, string>>
+  lightingMode?: "studio" | "sunset" | "warehouse" | "forest"
+  wireframe?: boolean
+  zoomAction?: "in" | "out" | null
+  autoRotate?: boolean
 }
 
 function BoxPackage3D({
@@ -22,12 +27,16 @@ function BoxPackage3D({
   onPanelSelect,
   color = "#93c5fd",
   panelTextures = {},
+  wireframe = false,
+  autoRotate = true,
 }: {
   dimensions: { width: number; height: number; depth: number }
   selectedPanelId?: PanelId | null
   onPanelSelect?: (panelId: PanelId | null) => void
   color?: string
   panelTextures?: Partial<Record<PanelId, string>>
+  wireframe?: boolean
+  autoRotate?: boolean
 }) {
   const meshRef = useRef<THREE.Mesh>(null)
   const { width, height, depth } = dimensions
@@ -38,7 +47,7 @@ function BoxPackage3D({
   const d = depth * fixedScale
 
   useFrame((state) => {
-    if (meshRef.current) {
+    if (meshRef.current && autoRotate) {
       meshRef.current.rotation.y = state.clock.getElapsedTime() * 0.2
     }
   })
@@ -65,6 +74,7 @@ function BoxPackage3D({
         color: textureUrl ? 0xffffff : color,
         roughness: 0.3,
         metalness: 0.1,
+        wireframe,
       })
 
       // Set selection highlight
@@ -109,7 +119,7 @@ function BoxPackage3D({
 
       return material
     })
-  }, [panelTextures, selectedPanelId, color])
+  }, [panelTextures, selectedPanelId, color, wireframe])
 
   const handleClick = (event: ThreeEvent<MouseEvent>) => {
     if (!onPanelSelect) return
@@ -168,12 +178,16 @@ function CylinderPackage3D({
   onPanelSelect,
   color = "#93c5fd",
   panelTextures = {},
+  wireframe = false,
+  autoRotate = true,
 }: {
   dimensions: { width: number; height: number; depth: number }
   selectedPanelId?: PanelId | null
   onPanelSelect?: (panelId: PanelId | null) => void
   color?: string
   panelTextures?: Partial<Record<PanelId, string>>
+  wireframe?: boolean
+  autoRotate?: boolean
 }) {
   const groupRef = useRef<THREE.Group>(null)
   const { width, height } = dimensions
@@ -183,7 +197,7 @@ function CylinderPackage3D({
   const cylinderHeight = height * fixedScale
 
   useFrame((state) => {
-    if (groupRef.current) {
+    if (groupRef.current && autoRotate) {
       groupRef.current.rotation.y = state.clock.getElapsedTime() * 0.2
     }
   })
@@ -195,6 +209,7 @@ function CylinderPackage3D({
       color: bodyTexture ? 0xffffff : color,
       roughness: 0.3,
       metalness: 0.1,
+      wireframe,
     })
     
     // Apply body texture if available - load asynchronously
@@ -223,7 +238,7 @@ function CylinderPackage3D({
     }
     
     return material
-  }, [color, panelTextures])
+  }, [color, panelTextures, wireframe])
 
   const selectedMaterial = useMemo(
     () =>
@@ -233,8 +248,9 @@ function CylinderPackage3D({
         metalness: 0.1,
         emissive: "#fbbf24",
         emissiveIntensity: 0.3,
+        wireframe,
       }),
-    []
+    [wireframe]
   )
   
   const topMaterial = useMemo(() => {
@@ -244,6 +260,7 @@ function CylinderPackage3D({
       color: topTexture ? 0xffffff : color,
       roughness: 0.3,
       metalness: 0.1,
+      wireframe,
     })
     
     if (topTexture) {
@@ -270,7 +287,7 @@ function CylinderPackage3D({
     }
     
     return material
-  }, [color, panelTextures])
+  }, [color, panelTextures, wireframe])
   
   const bottomMaterial = useMemo(() => {
     const bottomTexture = panelTextures["bottom"]
@@ -279,6 +296,7 @@ function CylinderPackage3D({
       color: bottomTexture ? 0xffffff : color,
       roughness: 0.3,
       metalness: 0.1,
+      wireframe,
     })
     
     if (bottomTexture) {
@@ -305,7 +323,7 @@ function CylinderPackage3D({
     }
     
     return material
-  }, [color, panelTextures])
+  }, [color, panelTextures, wireframe])
 
   const handleBodyClick = (event: ThreeEvent<MouseEvent>) => {
     if (!onPanelSelect) return
@@ -393,7 +411,15 @@ function CylinderPackage3D({
   )
 }
 
-function Package3D({ model, selectedPanelId, onPanelSelect, color, panelTextures }: PackageViewer3DProps) {
+function Package3D({ 
+  model, 
+  selectedPanelId, 
+  onPanelSelect, 
+  color, 
+  panelTextures,
+  wireframe = false,
+  autoRotate = true,
+}: PackageViewer3DProps) {
   const { type, dimensions } = model
 
   switch (type) {
@@ -405,6 +431,8 @@ function Package3D({ model, selectedPanelId, onPanelSelect, color, panelTextures
           onPanelSelect={onPanelSelect}
           color={color}
           panelTextures={panelTextures}
+          wireframe={wireframe}
+          autoRotate={autoRotate}
         />
       )
 
@@ -416,6 +444,8 @@ function Package3D({ model, selectedPanelId, onPanelSelect, color, panelTextures
           onPanelSelect={onPanelSelect}
           color={color}
           panelTextures={panelTextures}
+          wireframe={wireframe}
+          autoRotate={autoRotate}
         />
       )
 
@@ -425,6 +455,36 @@ function Package3D({ model, selectedPanelId, onPanelSelect, color, panelTextures
 }
 
 export function PackageViewer3D(props: PackageViewer3DProps) {
+  const controlsRef = useRef<OrbitControlsImpl>(null)
+  const {
+    lightingMode = "studio",
+    wireframe = false,
+    zoomAction,
+    autoRotate = true,
+  } = props
+
+  useEffect(() => {
+    if (!zoomAction || !controlsRef.current) return
+
+    const currentDistance = controlsRef.current.getDistance()
+    const newDistance = zoomAction === "in" 
+      ? Math.max(currentDistance * 0.8, 2) 
+      : Math.min(currentDistance * 1.2, 10)
+
+    controlsRef.current.minDistance = newDistance
+    controlsRef.current.maxDistance = newDistance
+    controlsRef.current.update()
+
+    const timer = setTimeout(() => {
+      if (controlsRef.current) {
+        controlsRef.current.minDistance = 2
+        controlsRef.current.maxDistance = 10
+      }
+    }, 100)
+
+    return () => clearTimeout(timer)
+  }, [zoomAction])
+
   return (
     <div className="w-full h-full bg-linear-to-br from-slate-50 to-slate-100 rounded-lg border border-border overflow-hidden relative">
       <Canvas 
@@ -438,7 +498,16 @@ export function PackageViewer3D(props: PackageViewer3DProps) {
         frameloop="always"
       >
         <PerspectiveCamera makeDefault position={[4, 3, 4]} />
-        <OrbitControls enablePan={true} enableZoom={true} enableRotate={true} minDistance={2} maxDistance={10} />
+        <OrbitControls 
+          ref={controlsRef}
+          enablePan={true} 
+          enableZoom={true} 
+          enableRotate={true} 
+          minDistance={2} 
+          maxDistance={10}
+          enableDamping
+          dampingFactor={0.05}
+        />
 
         {/* Lighting */}
         <ambientLight intensity={0.5} />
@@ -452,10 +521,10 @@ export function PackageViewer3D(props: PackageViewer3DProps) {
         <pointLight position={[-5, 5, -5]} intensity={0.5} />
 
         {/* Environment for reflections */}
-        <Environment preset="apartment" />
+        <Environment preset={lightingMode} background={false} />
 
         {/* Package */}
-        <Package3D {...props} />
+        <Package3D {...props} wireframe={wireframe} autoRotate={autoRotate} />
       </Canvas>
 
       {props.model.dielines && <MiniDielineHud dielines={props.model.dielines} />}

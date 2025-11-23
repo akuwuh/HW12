@@ -131,63 +131,67 @@ export function generateDieline(type: PackageType, dimensions: PackageDimensions
   }
 }
 
-// Box dieline generator (classic box with flaps)
+// Box dieline generator (proper unfolded box layout)
 function generateBoxDieline(w: number, h: number, d: number): DielinePath[] {
-  const margin = 10
-  const flapSize = d * 0.5
+  const margin = 20
 
-  // Top flap
-  const topFlap: DielinePoint[] = [
-    { x: margin + w, y: margin, type: "corner" },
-    { x: margin + w + d, y: margin, type: "corner" },
-    { x: margin + w + d, y: margin + flapSize, type: "fold" },
-    { x: margin + w, y: margin + flapSize, type: "fold" },
+  // Layout: Cross pattern with connected edges
+  //        [Top]
+  // [Left][Front][Right][Back]
+  //       [Bottom]
+
+  // Top panel (above front) - shares bottom edge with front's top edge
+  const topPanel: DielinePoint[] = [
+    { x: margin + d, y: margin, type: "corner" },
+    { x: margin + d + w, y: margin, type: "corner" },
+    { x: margin + d + w, y: margin + d, type: "fold" },
+    { x: margin + d, y: margin + d, type: "fold" },
   ]
 
-  // Front face
-  const frontFace: DielinePoint[] = [
-    { x: margin + w, y: margin + flapSize, type: "fold" },
-    { x: margin + w + d, y: margin + flapSize, type: "fold" },
-    { x: margin + w + d, y: margin + flapSize + h, type: "fold" },
-    { x: margin + w, y: margin + flapSize + h, type: "fold" },
-  ]
-
-  // Bottom flap
-  const bottomFlap: DielinePoint[] = [
-    { x: margin + w, y: margin + flapSize + h, type: "fold" },
-    { x: margin + w + d, y: margin + flapSize + h, type: "fold" },
-    { x: margin + w + d, y: margin + flapSize + h + d, type: "corner" },
-    { x: margin + w, y: margin + flapSize + h + d, type: "corner" },
-  ]
-
-  // Left side panel
+  // Left panel - shares right edge with front's left edge
   const leftPanel: DielinePoint[] = [
-    { x: margin, y: margin + flapSize, type: "corner" },
-    { x: margin + w, y: margin + flapSize, type: "fold" },
-    { x: margin + w, y: margin + flapSize + h, type: "fold" },
-    { x: margin, y: margin + flapSize + h, type: "corner" },
+    { x: margin, y: margin + d, type: "corner" },
+    { x: margin + d, y: margin + d, type: "fold" },
+    { x: margin + d, y: margin + d + h, type: "fold" },
+    { x: margin, y: margin + d + h, type: "corner" },
   ]
 
-  // Right side panel
+  // Front panel (center) - connects to all adjacent panels
+  const frontPanel: DielinePoint[] = [
+    { x: margin + d, y: margin + d, type: "fold" },
+    { x: margin + d + w, y: margin + d, type: "fold" },
+    { x: margin + d + w, y: margin + d + h, type: "fold" },
+    { x: margin + d, y: margin + d + h, type: "fold" },
+  ]
+
+  // Right panel - shares left edge with front's right edge
   const rightPanel: DielinePoint[] = [
-    { x: margin + w + d, y: margin + flapSize, type: "fold" },
-    { x: margin + w + d + w, y: margin + flapSize, type: "fold" },
-    { x: margin + w + d + w, y: margin + flapSize + h, type: "fold" },
-    { x: margin + w + d, y: margin + flapSize + h, type: "fold" },
+    { x: margin + d + w, y: margin + d, type: "fold" },
+    { x: margin + d + w + d, y: margin + d, type: "fold" },
+    { x: margin + d + w + d, y: margin + d + h, type: "fold" },
+    { x: margin + d + w, y: margin + d + h, type: "fold" },
   ]
 
-  // Back panel
+  // Back panel - shares left edge with right's right edge
   const backPanel: DielinePoint[] = [
-    { x: margin + w + d + w, y: margin + flapSize, type: "fold" },
-    { x: margin + w + d + w + d, y: margin + flapSize, type: "corner" },
-    { x: margin + w + d + w + d, y: margin + flapSize + h, type: "corner" },
-    { x: margin + w + d + w, y: margin + flapSize + h, type: "fold" },
+    { x: margin + d + w + d, y: margin + d, type: "fold" },
+    { x: margin + d + w + d + w, y: margin + d, type: "corner" },
+    { x: margin + d + w + d + w, y: margin + d + h, type: "corner" },
+    { x: margin + d + w + d, y: margin + d + h, type: "fold" },
+  ]
+
+  // Bottom panel (below front) - shares top edge with front's bottom edge
+  const bottomPanel: DielinePoint[] = [
+    { x: margin + d, y: margin + d + h, type: "fold" },
+    { x: margin + d + w, y: margin + d + h, type: "fold" },
+    { x: margin + d + w, y: margin + d + h + d, type: "corner" },
+    { x: margin + d, y: margin + d + h + d, type: "corner" },
   ]
 
   return [
-    { points: topFlap, closed: true, panelId: "top" },
-    { points: frontFace, closed: true, panelId: "front" },
-    { points: bottomFlap, closed: true, panelId: "bottom" },
+    { points: topPanel, closed: true, panelId: "top" },
+    { points: frontPanel, closed: true, panelId: "front" },
+    { points: bottomPanel, closed: true, panelId: "bottom" },
     { points: leftPanel, closed: true, panelId: "left" },
     { points: rightPanel, closed: true, panelId: "right" },
     { points: backPanel, closed: true, panelId: "back" },
@@ -327,12 +331,12 @@ function calculateBounds(points: DielinePoint[]): { minX: number; minY: number; 
 // Get description for box panel
 function getBoxPanelDescription(panelId: BoxPanelId, width: number, height: number, depth: number): string {
   const descriptions: Record<BoxPanelId, string> = {
-    front: `Front face of the box (${width}mm × ${height}mm). This is the primary visible panel when the box is displayed.`,
-    back: `Back face of the box (${width}mm × ${height}mm). Opposite side of the front panel.`,
-    left: `Left side panel (${depth}mm × ${height}mm). Connects front and back panels.`,
-    right: `Right side panel (${depth}mm × ${height}mm). Connects front and back panels.`,
-    top: `Top face of the box (${width}mm × ${depth}mm). Usually the opening or lid area.`,
-    bottom: `Bottom face of the box (${width}mm × ${depth}mm). Base of the package.`,
+    front: `Front face (W: ${width}mm × H: ${height}mm). Primary display panel.`,
+    back: `Back face (W: ${width}mm × H: ${height}mm). Opposite of front.`,
+    left: `Left side (D: ${depth}mm × H: ${height}mm). Connects front and back.`,
+    right: `Right side (D: ${depth}mm × H: ${height}mm). Connects front and back.`,
+    top: `Top face (W: ${width}mm × D: ${depth}mm). Lid/opening area.`,
+    bottom: `Bottom face (W: ${width}mm × D: ${depth}mm). Base of package.`,
   }
   return descriptions[panelId]
 }

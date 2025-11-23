@@ -2,16 +2,16 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { DielineEditor } from "@/components/dieline-editor";
 import { PackageViewer3D } from "@/components/package-viewer-3d";
 import { AIChatPanel } from "@/components/AIChatPanel";
-import { CylinderIcon, Box, CheckCircle2 } from "lucide-react";
+import { CylinderIcon, Box, CheckCircle2, MessageSquare, Pencil } from "lucide-react";
 import { useLoading } from "@/providers/LoadingProvider";
-import { getPackagingState, updatePackagingDimensions, getPackagingStatus } from "@/lib/packaging-api";
+import { updatePackagingDimensions, getPackagingState, getPackagingStatus } from "@/lib/packaging-api";
 import { getCachedTextureUrl } from "@/lib/texture-cache";
 import {
   type PackageType,
@@ -44,6 +44,10 @@ function Packaging() {
   const [activeView, setActiveView] = useState<"2d" | "3d">("3d");
   const [panelTextures, setPanelTextures] = useState<Partial<Record<PanelId, string>>>({});
   const [showTextureNotification, setShowTextureNotification] = useState<{ panelId: PanelId; show: boolean } | null>(null);
+  const [lightingMode, setLightingMode] = useState<"studio" | "sunset" | "warehouse" | "forest">("studio");
+  const [displayMode, setDisplayMode] = useState<"solid" | "wireframe">("solid");
+  const [zoomAction, setZoomAction] = useState<"in" | "out" | null>(null);
+  const [autoRotate, setAutoRotate] = useState(true);
 
   /**
    * Hydrate state from backend on mount/reload.
@@ -58,11 +62,13 @@ function Packaging() {
       const targetType = state.current_package_type || 'box';
       const shapeState = targetType === 'cylinder' ? state.cylinder_state : state.box_state;
       
-      // Use dimensions from the shape's state
-      const targetDimensions = shapeState.dimensions || DEFAULT_PACKAGE_DIMENSIONS[targetType];
+      // Use dimensions from the shape's state - backend guarantees valid dimensions
+      const targetDimensions = shapeState?.dimensions as PackageDimensions;
       
-      console.log("[Packaging] 📦 Restoring type:", targetType, "dimensions:", targetDimensions);
-      console.log("[Packaging] 📊 Full state - Box:", state.box_state, "Cylinder:", state.cylinder_state);
+      console.log("[Packaging] 📦 Restoring type:", targetType);
+      console.log("[Packaging] 📏 Restored dimensions:", targetDimensions);
+      console.log("[Packaging] 🎨 Restored textures:", Object.keys(shapeState?.panel_textures || {}));
+      console.log("[Packaging] 📊 Full state - Box dims:", state.box_state?.dimensions, "Cylinder dims:", state.cylinder_state?.dimensions);
       
       // Generate model for current shape type
       const newModel = generatePackageModel(targetType, targetDimensions);
@@ -147,17 +153,20 @@ function Packaging() {
     const newModel = generatePackageModel(packageType, dimensions);
     setPackageModel(newModel);
     setSelectedPanelId(null);
-  }, [packageType, dimensions.width, dimensions.height, dimensions.depth, isHydrated]);
+  }, [packageType, dimensions.width, dimensions.height, dimensions.depth]);
+  
   const handlePackageTypeChange = useCallback(async (type: PackageType) => {
     if (!packagingState) return;
     
     console.log("[Packaging] 📦 Switching from", packageType, "to", type);
     
-    // Get the saved state for the target shape type
+    // Get the saved state for the target shape type - use ONLY saved state
     const targetState = type === 'cylinder' ? packagingState.cylinder_state : packagingState.box_state;
-    const targetDimensions = targetState.dimensions || DEFAULT_PACKAGE_DIMENSIONS[type];
+    const targetDimensions = targetState?.dimensions as PackageDimensions;
     
-    console.log("[Packaging] 🔄 Loading saved state for", type, ":", targetDimensions);
+    console.log("[Packaging] 🔄 Loading saved state for", type);
+    console.log("[Packaging] 📏 Dimensions:", targetDimensions);
+    console.log("[Packaging] 🎨 Textures:", Object.keys(targetState?.panel_textures || {}));
     
     // Generate model for target shape with its saved dimensions
     const newModel = generatePackageModel(type, targetDimensions);
@@ -181,14 +190,17 @@ function Packaging() {
       }
     }
     setPanelTextures(cachedTextures);
+    console.log("[Packaging] ✅ Loaded", Object.keys(cachedTextures).length, "cached textures");
     
     // Persist type switch to backend
     try {
       await updatePackagingDimensions(type, targetDimensions);
-      console.log("[Packaging] ✅ Persisted package type switch");
-    } catch (err: any) {
+      console.log("[Packaging] ✅ Backend updated: type =", type, ", dims =", targetDimensions);
+    } catch (err: unknown) {
       console.error("[Packaging] ❌ Failed to save package type:", err);
-      setSaveError(`Failed to save: ${err.message}`);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error("[Packaging] Error details:", errorMessage);
+      setSaveError(`Failed to save: ${errorMessage}`);
       setTimeout(() => setSaveError(null), 5000);
     }
   }, [packagingState, packageType]);
@@ -200,10 +212,11 @@ function Packaging() {
       const newDimensions = { ...prev, [key]: validValue };
       
       // Persist to backend (fire-and-forget, non-blocking)
-      updatePackagingDimensions(packageType, newDimensions).catch(err => {
+      updatePackagingDimensions(packageType, newDimensions).catch((err: unknown) => {
         console.error("[Packaging] ❌ Failed to save dimensions:", err);
-        console.error("[Packaging] Error details:", err.message);
-        setSaveError(`Failed to save: ${err.message}`);
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        console.error("[Packaging] Error details:", errorMessage);
+        setSaveError(`Failed to save: ${errorMessage}`);
         setTimeout(() => setSaveError(null), 5000);
       });
       
@@ -291,6 +304,10 @@ function Packaging() {
                   onPanelSelect={setSelectedPanelId}
                   color="#60a5fa"
                   panelTextures={panelTextures}
+                  lightingMode={lightingMode}
+                  wireframe={displayMode === "wireframe"}
+                  zoomAction={zoomAction}
+                  autoRotate={autoRotate}
                 />
 
                 {isGenerating && packagingState && (
@@ -320,28 +337,29 @@ function Packaging() {
                     </div>
                   </div>
                 )}
-                
-                {saveError && (
-                  <div className="absolute top-4 right-4 z-50 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg">
-                      {saveError}
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </div>
         </div>
 
         <div className="w-[380px] border-l-2 border-black bg-card overflow-hidden flex flex-col shrink-0">
-          <div className="border-b-2 border-black shrink-0 px-4 py-3">
-            <h2 className="text-sm font-semibold" suppressHydrationWarning>Controls</h2>
-          </div>
+          <Tabs defaultValue="chat" className="flex-1 flex flex-col">
+            <div className="border-b-2 border-black shrink-0 px-4 py-3">
+              <TabsList className="w-full grid grid-cols-2 gap-2 bg-transparent p-0 h-auto">
+                <TabsTrigger value="chat" className="gap-2 border-2 border-black data-[state=active]:bg-black data-[state=active]:text-white data-[state=inactive]:bg-background shadow-none">
+                  <MessageSquare className="w-4 h-4" />
+                  Chat
+                </TabsTrigger>
+                <TabsTrigger value="editor" className="gap-2 border-2 border-black data-[state=active]:bg-black data-[state=active]:text-white data-[state=inactive]:bg-background shadow-none">
+                  <Pencil className="w-4 h-4" />
+                  Editor
+                </TabsTrigger>
+              </TabsList>
+            </div>
 
-          <div className="flex-1 overflow-y-auto p-4 flex flex-col space-y-4">
-            {/* AI Assistant Section */}
-            <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">AI Assistant</Label>
+            {/* Chat Tab */}
+            <TabsContent value="chat" className="flex-1 overflow-y-auto p-4 flex flex-col space-y-4 mt-0">
+              {/* AI Chat */}
               <AIChatPanel 
                 selectedPanelId={selectedPanelId}
                 packageModel={packageModel}
@@ -349,233 +367,236 @@ function Packaging() {
                 packagingState={packagingState}
                 isGenerating={isGenerating}
               />
-            </div>
-            {/* View Toggle Buttons */}
-            <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">View Mode</Label>
-              <div className="flex gap-2">
-                <Button
-                  variant={activeView === "2d" ? "default" : "outline"}
-                  className="flex-1"
-                  size="sm"
-                  onClick={() => setActiveView("2d")}
-                >
-                  Dieline
-                </Button>
-                <Button
-                  variant={activeView === "3d" ? "default" : "outline"}
-                  className="flex-1"
-                  size="sm"
-                  onClick={() => setActiveView("3d")}
-                >
-                  3D
-                </Button>
-              </div>
-            </div>
 
-            {/* Package Type Selection */}
-            <div className="space-y-3">
-              <Label className="text-xs font-medium text-muted-foreground">Package Type</Label>
-              <div className="grid grid-cols-2 gap-2">
-                {PACKAGE_TYPES.map(({ type, label, icon: Icon }) => (
+              {/* Panel Selection */}
+              {packageModel.panels.length > 0 && (
+                <div className="border-2 border-black p-4 space-y-3">
+                  <h3 className="text-sm font-semibold text-foreground">Select Panel</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    {packageModel.panels.map((panel) => (
+                      <Button
+                        key={panel.id}
+                        variant={selectedPanelId === panel.id ? "default" : "outline"}
+                        className="text-xs"
+                        size="sm"
+                        onClick={() => setSelectedPanelId(panel.id === selectedPanelId ? null : panel.id)}
+                      >
+                        {panel.name}
+                        {panelTextures[panel.id] && (
+                          <span className="ml-1 text-[10px]">✨</span>
+                        )}
+                      </Button>
+                    ))}
+                  </div>
+                  {selectedPanelId && (
+                    <div className="mt-2 p-2 border-2 border-black text-xs">
+                      <p className="font-medium">
+                        {packageModel.panels.find((p) => p.id === selectedPanelId)?.name}
+                      </p>
+                      <p className="text-muted-foreground mt-1">
+                        {packageModel.panels.find((p) => p.id === selectedPanelId)?.description}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </TabsContent>
+
+            {/* Editor Tab */}
+            <TabsContent value="editor" className="flex-1 overflow-y-auto p-4 flex flex-col space-y-4 mt-0">
+              {/* View Toggle Buttons */}
+              <div className="space-y-2">
+                <Label className="text-xs font-medium text-muted-foreground">View Mode</Label>
+                <div className="flex gap-2">
                   <Button
-                    key={type}
-                    variant={packageType === type ? "default" : "outline"}
-                    className="flex flex-col items-center gap-1 h-auto py-3"
+                    variant={activeView === "2d" ? "default" : "outline"}
+                    className="flex-1"
                     size="sm"
-                    onClick={() => handlePackageTypeChange(type)}
+                    onClick={() => setActiveView("2d")}
                   >
-                    <Icon className="w-4 h-4" />
-                    <span className="text-xs">{label}</span>
+                    Dieline
                   </Button>
-                ))}
+                  <Button
+                    variant={activeView === "3d" ? "default" : "outline"}
+                    className="flex-1"
+                    size="sm"
+                    onClick={() => setActiveView("3d")}
+                  >
+                    3D
+                  </Button>
+                </div>
               </div>
-            </div>
 
-            {/* Panel Selection */}
-            {packageModel.panels.length > 0 && (
-              <Card className="p-4 space-y-3">
-                <h3 className="text-sm font-semibold text-foreground">Select Panel</h3>
+              {/* Package Type Selection */}
+              <div className="space-y-3">
+                <Label className="text-xs font-medium text-muted-foreground">Package Type</Label>
                 <div className="grid grid-cols-2 gap-2">
-                  {packageModel.panels.map((panel) => (
+                  {PACKAGE_TYPES.map(({ type, label, icon: Icon }) => (
                     <Button
-                      key={panel.id}
-                      variant={selectedPanelId === panel.id ? "default" : "outline"}
-                      className="text-xs"
+                      key={type}
+                      variant={packageType === type ? "default" : "outline"}
+                      className="flex flex-col items-center gap-1 h-auto py-3"
                       size="sm"
-                      onClick={() => setSelectedPanelId(panel.id === selectedPanelId ? null : panel.id)}
+                      onClick={() => handlePackageTypeChange(type)}
                     >
-                      {panel.name}
-                      {panelTextures[panel.id] && (
-                        <span className="ml-1 text-[10px]">✨</span>
-                      )}
+                      <Icon className="w-4 h-4" />
+                      <span className="text-xs">{label}</span>
                     </Button>
                   ))}
                 </div>
-                {selectedPanelId && (
-                  <div className="mt-2 p-2 bg-muted rounded text-xs">
-                    <p className="font-medium">
-                      {packageModel.panels.find((p) => p.id === selectedPanelId)?.name}
-                    </p>
-                    <p className="text-muted-foreground mt-1">
-                      {packageModel.panels.find((p) => p.id === selectedPanelId)?.description}
-                    </p>
-                  </div>
-                )}
-              </Card>
-            )}
+              </div>
 
-            {/* Dimensions */}
-            <Card className="p-4 space-y-4">
-              <h3 className="text-sm font-semibold text-foreground">Dimensions (mm)</h3>
+              {/* Dimensions */}
+              <div className="border-2 border-black p-4 space-y-4">
+                <h3 className="text-sm font-semibold text-foreground">Dimensions (mm)</h3>
 
-              {packageType === "box" ? (
-                <>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs">X</Label>
-                      <Input
-                        type="number"
-                        value={packageModel.dimensions.width}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          if (!isNaN(val) && val >= 0) {
-                            handleDimensionChange("width", val);
-                          }
-                        }}
-                        className="w-16 h-7 text-xs"
-                        min={0}
+                {packageType === "box" ? (
+                  <>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs">X</Label>
+                        <Input
+                          type="number"
+                          value={packageModel.dimensions.width}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            if (!isNaN(val) && val >= 0) {
+                              handleDimensionChange("width", val);
+                            }
+                          }}
+                          className="w-16 h-7 text-xs"
+                          min={0}
+                        />
+                      </div>
+                      <Slider
+                        value={[packageModel.dimensions.width]}
+                        onValueChange={([value]) => handleDimensionChange("width", value)}
+                        min={20}
+                        max={300}
+                        step={5}
+                        className="w-full"
                       />
                     </div>
-                    <Slider
-                      value={[packageModel.dimensions.width]}
-                      onValueChange={([value]) => handleDimensionChange("width", value)}
-                      min={20}
-                      max={300}
-                      step={5}
-                      className="w-full"
-                    />
-                  </div>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs">Y</Label>
-                      <Input
-                        type="number"
-                        value={packageModel.dimensions.height}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          if (!isNaN(val) && val >= 0) {
-                            handleDimensionChange("height", val);
-                          }
-                        }}
-                        className="w-16 h-7 text-xs"
-                        min={0}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs">Y</Label>
+                        <Input
+                          type="number"
+                          value={packageModel.dimensions.height}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            if (!isNaN(val) && val >= 0) {
+                              handleDimensionChange("height", val);
+                            }
+                          }}
+                          className="w-16 h-7 text-xs"
+                          min={0}
+                        />
+                      </div>
+                      <Slider
+                        value={[packageModel.dimensions.height]}
+                        onValueChange={([value]) => handleDimensionChange("height", value)}
+                        min={20}
+                        max={400}
+                        step={5}
+                        className="w-full"
                       />
                     </div>
-                    <Slider
-                      value={[packageModel.dimensions.height]}
-                      onValueChange={([value]) => handleDimensionChange("height", value)}
-                      min={20}
-                      max={400}
-                      step={5}
-                      className="w-full"
-                    />
-                  </div>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs">Z</Label>
-                      <Input
-                        type="number"
-                        value={packageModel.dimensions.depth}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          if (!isNaN(val) && val >= 0) handleDimensionChange("depth", val);
-                        }}
-                        className="w-16 h-7 text-xs"
-                        min={0}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs">Z</Label>
+                        <Input
+                          type="number"
+                          value={packageModel.dimensions.depth}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            if (!isNaN(val) && val >= 0) handleDimensionChange("depth", val);
+                          }}
+                          className="w-16 h-7 text-xs"
+                          min={0}
+                        />
+                      </div>
+                      <Slider
+                        value={[packageModel.dimensions.depth]}
+                        onValueChange={([value]) => handleDimensionChange("depth", value)}
+                        min={20}
+                        max={300}
+                        step={5}
+                        className="w-full"
                       />
                     </div>
-                    <Slider
-                      value={[packageModel.dimensions.depth]}
-                      onValueChange={([value]) => handleDimensionChange("depth", value)}
-                      min={20}
-                      max={300}
-                      step={5}
-                      className="w-full"
-                    />
-                  </div>
-                </>
-              ) : packageType === "cylinder" ? (
-                <>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs">Radius</Label>
-                      <Input
-                        type="number"
-                        value={packageModel.dimensions.width / 2}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          if (!isNaN(val) && val >= 0) handleDimensionChange("width", val * 2);
-                        }}
-                        className="w-16 h-7 text-xs"
-                        min={0}
+                  </>
+                ) : packageType === "cylinder" ? (
+                  <>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs">Radius</Label>
+                        <Input
+                          type="number"
+                          value={packageModel.dimensions.width / 2}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            if (!isNaN(val) && val >= 0) handleDimensionChange("width", val * 2);
+                          }}
+                          className="w-16 h-7 text-xs"
+                          min={0}
+                        />
+                      </div>
+                      <Slider
+                        value={[packageModel.dimensions.width / 2]}
+                        onValueChange={([value]) => handleDimensionChange("width", value * 2)}
+                        min={10}
+                        max={150}
+                        step={5}
+                        className="w-full"
                       />
                     </div>
-                    <Slider
-                      value={[packageModel.dimensions.width / 2]}
-                      onValueChange={([value]) => handleDimensionChange("width", value * 2)}
-                      min={10}
-                      max={150}
-                      step={5}
-                      className="w-full"
-                    />
-                  </div>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs">Height</Label>
-                      <Input
-                        type="number"
-                        value={packageModel.dimensions.height}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          if (!isNaN(val) && val >= 0) handleDimensionChange("height", val);
-                        }}
-                        className="w-16 h-7 text-xs"
-                        min={0}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs">Height</Label>
+                        <Input
+                          type="number"
+                          value={packageModel.dimensions.height}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            if (!isNaN(val) && val >= 0) handleDimensionChange("height", val);
+                          }}
+                          className="w-16 h-7 text-xs"
+                          min={0}
+                        />
+                      </div>
+                      <Slider
+                        value={[packageModel.dimensions.height]}
+                        onValueChange={([value]) => handleDimensionChange("height", value)}
+                        min={20}
+                        max={400}
+                        step={5}
+                        className="w-full"
                       />
                     </div>
-                    <Slider
-                      value={[packageModel.dimensions.height]}
-                      onValueChange={([value]) => handleDimensionChange("height", value)}
-                      min={20}
-                      max={400}
-                      step={5}
-                      className="w-full"
-                    />
-                  </div>
-                </>
-              ) : null}
-            </Card>
+                  </>
+                ) : null}
+              </div>
 
-            {/* Dieline Info */}
-            <Card className="p-4 space-y-2 bg-muted/50">
-              <h3 className="text-sm font-semibold text-foreground">Package Information</h3>
-              <div className="text-xs space-y-1">
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Volume:</span>
-                  <span className="font-medium text-foreground">{volume} mm³</span>
-                </div>
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Surface Area:</span>
-                  <span className="font-medium text-foreground">{surfaceArea} mm²</span>
+              {/* Package Info */}
+              <div className="border-2 border-black p-4 space-y-2">
+                <h3 className="text-sm font-semibold text-foreground">Package Information</h3>
+                <div className="text-xs space-y-1">
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Volume:</span>
+                    <span className="font-medium text-foreground">{volume} mm³</span>
+                  </div>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Surface Area:</span>
+                    <span className="font-medium text-foreground">{surfaceArea} mm²</span>
+                  </div>
                 </div>
               </div>
-            </Card>
-
-          </div>
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     </div>

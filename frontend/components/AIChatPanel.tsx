@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, RotateCcw } from "lucide-react";
+import { Loader2, RotateCcw, ImagePlus } from "lucide-react";
 import { editProduct, getProductStatus, rewindProduct } from "@/lib/product-api";
 import { clearCachedModel } from "@/lib/model-cache";
 import { ProductState, ProductStatus } from "@/lib/product-types";
@@ -754,9 +754,10 @@ function PackagingAIChatPanel({
 
   return (
     <div className="space-y-3">
-      {/* Prompt Input */}
+      {/* Prompt Input with Upload Button */}
+      <div className="relative">
         <Textarea
-        placeholder="Describe style, colors, patterns..."
+          placeholder="Describe style, colors, patterns..."
           value={prompt}
           onChange={(e) => {
             const newValue = e.target.value;
@@ -768,49 +769,51 @@ function PackagingAIChatPanel({
             // Re-validate on blur to catch any edge cases
             validatePrompt(e.target.value);
           }}
-        className={`min-h-[70px] resize-none text-sm ${
+          className={`min-h-[120px] resize-none text-sm pr-10 ${
             validationError ? "border-red-500 border-2 focus:border-red-600" : ""
           }`}
-        disabled={isProcessing || showBulkGenerating}
+          disabled={isProcessing || showBulkGenerating}
         />
         
-        {/* Validation error */}
-        {validationError && (
+        {/* Upload Button Inside Textarea */}
+        <input
+          type="file"
+          id="reference-upload"
+          accept="image/*"
+          onChange={handleMockupUpload}
+          className="hidden"
+          disabled={isProcessing || showBulkGenerating}
+        />
+        <label
+          htmlFor="reference-upload"
+          className={`absolute bottom-2 right-2 p-1.5 rounded border-2 border-black bg-background hover:bg-muted transition-colors cursor-pointer ${
+            isProcessing || showBulkGenerating ? "opacity-50 cursor-not-allowed" : ""
+          } ${referenceMockup ? "bg-green-100 border-green-600" : ""}`}
+          title={referenceMockup ? "Reference image loaded (click to change)" : "Upload reference image"}
+        >
+          <ImagePlus className={`w-4 h-4 ${referenceMockup ? "text-green-600" : ""}`} />
+        </label>
+      </div>
+        
+      {/* Reference Status */}
+      {referenceMockup && (
+        <div className="flex items-center justify-between text-xs p-2 bg-green-50 border-2 border-green-600 rounded">
+          <span className="font-medium text-green-700">Reference image loaded</span>
+          <button
+            onClick={() => setReferenceMockup(null)}
+            className="font-semibold text-red-600 hover:underline"
+          >
+            Remove
+          </button>
+        </div>
+      )}
+        
+      {/* Validation error */}
+      {validationError && (
         <div className="text-xs text-red-600 dark:text-red-400 font-medium p-2 bg-red-50 dark:bg-red-950 rounded border-2 border-red-500">
           {validationError}
         </div>
       )}
-      
-      {/* Reference Upload */}
-      <div className="flex items-center gap-2">
-                <input
-                  type="file"
-          id="reference-upload"
-                  accept="image/*"
-                  onChange={handleMockupUpload}
-          className="hidden"
-          disabled={isProcessing || showBulkGenerating}
-                />
-        <label
-          htmlFor="reference-upload"
-          className={`text-xs font-semibold px-3 py-1.5 rounded border-2 border-black bg-background hover:bg-muted transition-colors cursor-pointer ${
-            isProcessing || showBulkGenerating ? "opacity-50 cursor-not-allowed" : ""
-          }`}
-        >
-          Upload Reference
-        </label>
-                {referenceMockup && (
-          <>
-            <span className="text-xs font-medium text-green-600">Loaded</span>
-                    <button
-                      onClick={() => setReferenceMockup(null)}
-              className="text-xs font-semibold text-red-600 hover:underline"
-                    >
-                      Remove
-                    </button>
-          </>
-          )}
-        </div>
         
       {/* Action Buttons */}
       <div className="grid grid-cols-2 gap-2">
