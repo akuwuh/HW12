@@ -163,6 +163,9 @@ async def generate_all_panels(request: BulkPanelGenerateRequest):
                     reference_mockup=request.reference_mockup,
                 )
                 
+                # Update state after completing this panel
+                current_state = get_packaging_state()
+                
                 if texture_url:
                     # Accumulate in local dict instead of saving immediately
                     generated_textures[panel_id] = PanelTexture(
@@ -171,14 +174,32 @@ async def generate_all_panels(request: BulkPanelGenerateRequest):
                         prompt=request.prompt,
                         dimensions=panel_dimensions,
                     )
+                    
+                    # Remove from generating_panels list to show progress
+                    if panel_id in current_state.generating_panels:
+                        current_state.generating_panels.remove(panel_id)
+                        save_packaging_state(current_state)
+                    
                     logger.info(f"[packaging-router] Successfully generated texture for panel {panel_id} ({len(generated_textures)}/{len(request.panel_ids)})")
                 else:
                     logger.error(f"[packaging-router] Texture generation returned no image for panel {panel_id}")
                     failed_panels.append(panel_id)
+                    # Still remove from list even if failed
+                    if panel_id in current_state.generating_panels:
+                        current_state.generating_panels.remove(panel_id)
+                        save_packaging_state(current_state)
                     
             except Exception as e:
                 logger.error(f"[packaging-router] Error generating texture for panel {panel_id}: {e}", exc_info=True)
                 failed_panels.append(panel_id)
+                # Remove from list even on error
+                try:
+                    current_state = get_packaging_state()
+                    if panel_id in current_state.generating_panels:
+                        current_state.generating_panels.remove(panel_id)
+                        save_packaging_state(current_state)
+                except:
+                    pass
         
         # ATOMIC UPDATE: Save all textures at once
         final_state = get_packaging_state()
