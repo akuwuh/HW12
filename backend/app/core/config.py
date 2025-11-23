@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     GEMINI_THINKING_LEVEL: Optional[str] = "low"  # Applied to Pro model only
     GEMINI_IMAGE_SIZE: Optional[str] = "1K"  # Image resolution (1K, 2K, 4K for Pro)
     GEMINI_IMAGE_ASPECT_RATIO: Optional[str] = "1:1"  # Aspect ratio for generated images
+    
+    # Artifact Storage
+    SAVE_ARTIFACTS_LOCALLY: bool = False  # Save to filesystem for testing/debugging
 
     class Config:
         env_file = ".env"
