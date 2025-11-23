@@ -2,135 +2,258 @@
 
 ## Overview
 
-The product viewer implements a lightweight, persistent caching strategy that keeps generated 3D models instantly available across page reloads, edits, and rewinds—without requiring backend storage or complex state management.
+This document describes the production-tested rendering and caching pipeline for 3D models in the product viewer. It was developed through iteration to solve real problems: infinite loading loops, blob URL lifecycle bugs, and cache invalidation issues.
+
+## Core Principles
+
+1. **Redis stores metadata only** - URLs, prompts, durations. Never binary assets.
+2. **Browser caches binaries** - Cache Storage for persistence, in-memory Map for stable blob URLs.
+3. **Stable IDs eliminate bugs** - Every iteration gets a unique, immutable ID at creation time.
+4. **Fade, don't block** - Show the previous model while the new one loads; swap when ready.
 
 ## Architecture
 
-### 1. State Storage (Redis)
+### 1. Backend State (Redis)
 
-**Backend**: `ProductState` in Redis stores metadata only:
-- `iterations[]` - array of historical create/edit passes
-- Each `ProductIteration` contains:
-  - `id` - unique identifier (e.g., `iter_1234567890123`)
-  - `trellis_output.model_file` - signed Fal.ai URL to the GLB
-  - `duration_seconds` - how long generation took
-  - `prompt`, `type`, `created_at`, etc.
+**Key**: `product:current`
 
-**Key principle**: Redis never stores binary assets, only URLs and metadata.
+**Schema**: `ProductState`
+- `iterations: ProductIteration[]` - complete history of create/edit passes
+- `trellis_output: TrellisArtifacts` - current GLB URL and preview images
+- `in_progress: bool`, `status`, `message`, etc.
+
+**ProductIteration** (per create/edit):
+```python
+{
+  "id": "iter_1763880000123",  # CRITICAL: Generated once at creation
+  "type": "create" | "edit",
+  "prompt": "user's instruction",
+  "trellis_output": {
+    "model_file": "https://v3b.fal.media/.../model.glb",
+    "no_background_images": [...]
+  },
+  "duration_seconds": 185.4,
+  "created_at": "2024-11-23T05:47:00Z"
+}
+```
+
+**Why `id` must be stable**:
+- If generated via Pydantic `default_factory`, it runs on **every deserialization** from Redis.
+- This creates new IDs every time `/product` is called → infinite hydration loop.
+- Solution: Generate `id` once in `product_pipeline.py` when creating the iteration.
 
 ### 2. Client-Side GLB Cache
 
-**Implementation**: `frontend/lib/model-cache.ts`
+**File**: `frontend/lib/model-cache.ts`
 
-Uses browser `Cache Storage` + in-memory blob URL map:
+Two-tier caching:
 
 ```typescript
-// Persistent storage (survives refresh)
-Cache Storage: iteration.id → GLB blob
+// Tier 1: Cache Storage (persistent, survives refresh)
+Cache Storage "product-models": 
+  "model_glb_iter_123" → GLB blob
 
-// In-memory (resets on refresh, avoids duplicate blob URLs)
-Map<iterationId, blobURL>
+// Tier 2: In-memory Map (session-only, prevents duplicate blob URLs)
+Map<iterationId, blobURL>:
+  "iter_123" → "blob:http://localhost:3000/abc-123..."
 ```
 
-**Flow**:
-1. `getCachedModelUrl(iterationId, remoteUrl)` checks the in-memory map first.
-   - If found: return existing blob URL (no new fetch, no new object URL).
-   - If not in memory but in Cache Storage: read blob, create object URL once, store in map.
-   - If nowhere: fetch from remote, store in Cache Storage, create object URL, store in map.
+**Why two tiers**:
+- `URL.createObjectURL(blob)` creates a **new string** every call, even for the same blob.
+- Without the in-memory Map, calling `getCachedModelUrl(iter_123, url)` twice returns different blob URLs.
+- React sees a new URL → triggers re-render → resets fade animation → infinite loop.
 
-2. Result: **Same iteration always returns the same blob URL string**, preventing React from re-rendering the viewer.
+**Solution**: Cache the blob URL string in memory; return the same string for the same iteration.
 
 ### 3. Product Page Hydration
 
 **File**: `frontend/app/product/page.tsx`
 
-On mount or edit completion:
-1. Fetch `ProductState` from Redis via `/product`.
-2. Extract latest iteration ID and remote GLB URL.
-3. Call `getCachedModelUrl(iteration.id, remoteUrl)`.
-4. Pass the resulting blob URL to `<ModelViewer modelUrl={url} />`.
+**On mount**:
+```typescript
+const state = await getProductState();
+const latestIteration = state.iterations.at(-1);
+const iterationId = latestIteration.id;  // Use .id, not .created_at!
 
-**Deduplication**: If `latestIterationIdRef.current === iterationId && currentModelUrl` is already set, skip hydration entirely—no re-fetch, no re-render.
+// Skip if already showing this iteration
+if (latestIterationIdRef.current === iterationId && currentModelUrl) {
+  return;  // No-op: prevents re-hydration
+}
+
+const cachedUrl = await getCachedModelUrl(iterationId, remoteUrl);
+setCurrentModelUrl(cachedUrl);  // Triggers viewer update
+```
+
+**On edit complete**:
+- Same flow as mount.
+- New iteration has new `id` → fetches new GLB → caches it → swaps viewer.
+- Old model stays visible until new blob is ready.
+
+**On rewind**:
+- Call `/product/rewind/{index}` to truncate Redis iterations.
+- Clear cache for discarded iterations: `clearCachedModel(staleIteration.id)`.
+- Hydrate from target iteration → instant load from cache.
 
 ### 4. Model Viewer Rendering
 
 **File**: `frontend/components/ModelViewer.tsx`
 
-Always keeps the canvas live:
-- No loading spinners or placeholder overlays.
-- When `modelUrl` changes, `useGLTF(url)` runs inside `<Suspense>`.
-- Once the GLB parses, a 350ms opacity fade animates the mesh from 0 → 1.
-- Materials are updated reactively in a `useEffect` to apply wireframe/color modes.
+**Key components**:
 
-**Key**: The URL prop remains stable for the same iteration (thanks to the in-memory cache), so React doesn't re-mount the model component.
+1. **ModelLoader**: Wraps `useGLTF(url)` and applies materials/wireframe.
+2. **ModelLoaderWrapper**: Manages opacity fade-in (0 → 1 over 350ms).
+3. **ModelViewer**: Canvas container with controls, lighting, orbit camera.
 
-### 5. Edit & Rewind Flow
+**Fade animation lifecycle**:
+```
+URL changes → reset opacity to 0
+    ↓
+useGLTF loads GLB (async, browser fetches blob or reads cache)
+    ↓
+onLoad fires → start 350ms fade
+    ↓
+requestAnimationFrame loop updates opacity
+    ↓
+Fade complete (opacity = 1)
+```
 
-**Edit**:
-1. User submits prompt via `AIChatPanel`.
-2. Backend runs Gemini → Trellis, creates new `ProductIteration` with unique `id`.
-3. Frontend polls `/product/status` until `complete`.
-4. Calls `hydrateProductState()` → fetches new GLB → caches it → swaps viewer to new blob URL.
-5. Fade animation plays as the new model loads.
+**Preventing duplicate fades**:
+- `hasLoadedRef` tracks if we've already animated this URL.
+- `lastUrlRef` ensures we only reset when URL actually changes.
+- Guards prevent React StrictMode double-mounting from triggering two fades.
 
-**Rewind**:
-1. User clicks "Rewind" on a past iteration.
-2. Backend truncates `iterations[]` and restores that iteration's assets.
-3. Frontend calls `clearCachedModel(staleIteration.id)` for all discarded iterations.
-4. Hydrates from the target iteration's cached blob (instant, no fetch).
+### 5. Common Pitfalls & Solutions
+
+#### Problem: Infinite loading loop
+**Symptom**: Console shows hundreds of "Loading iteration iter_X" with incrementing timestamps.
+
+**Cause**: `ProductIteration.id` used Pydantic `default_factory`, which ran on every Redis read.
+
+**Fix**: Generate ID once in `product_pipeline.py`:
+```python
+iteration_id = f"iter_{int(time.time() * 1000)}"
+iteration = ProductIteration(id=iteration_id, ...)
+```
+
+#### Problem: Model doesn't persist on reload
+**Symptom**: Every reload re-fetches the GLB, shows loading state.
+
+**Cause**: Cache hit returns new blob URL → React sees new prop → re-renders.
+
+**Fix**: In-memory Map caches blob URL strings, reuses same string for same iteration.
+
+#### Problem: Fade animation interrupted/restarts
+**Symptom**: Model flickers, opacity resets mid-fade.
+
+**Cause**: Parent re-renders or hydration triggers new URL prop mid-animation.
+
+**Fix**: Track `lastUrlRef` and skip fade if URL hasn't changed.
+
+#### Problem: Blank viewer after generation
+**Symptom**: Backend completes, but viewer stays empty.
+
+**Cause**: 
+- Blob URL revoked before `useGLTF` finishes.
+- Or: `currentModelUrl` set to `""` or `undefined` during hydration.
+
+**Fix**: 
+- Never clear `modelUrl` unless you have a replacement.
+- Let in-memory cache manage blob lifecycle (no manual revocation).
 
 ### 6. Performance Characteristics
 
-| Scenario | Network | Cache | Viewer Behavior |
-|----------|---------|-------|-----------------|
-| First load of iteration | Fetch GLB from Fal.ai | Store in Cache Storage | Fade in (350ms) |
-| Reload same iteration | None | Read from Cache Storage | Instant (blob URL reused) |
-| Switch to cached iteration | None | Read from Cache Storage | Instant swap |
-| New edit iteration | Fetch new GLB | Store new entry | Fade in while keeping old model visible |
+| Scenario | Network | Cache Operations | Viewer Behavior |
+|----------|---------|------------------|-----------------|
+| **First generation** | Fetch GLB from Fal.ai (~2.5MB, ~10s) | Store in Cache + Map | Fade in (350ms) |
+| **Reload same iteration** | None | Map lookup (instant) | Instant display, no animation |
+| **First reload after clearing browser** | None | Cache Storage read (~200ms), create blob URL | Fade in (350ms) |
+| **Edit (new iteration)** | Fetch new GLB | Store new entry | Previous model visible, then fade to new |
+| **Rewind to cached iteration** | None | Map lookup | Instant swap |
+| **Rewind to non-cached** | Fetch GLB | Store in Cache + Map | Fade in |
 
-## Best Practices for Other Features (e.g., Packaging)
+## Integration Guidelines for Other Features
 
-### Isolation Principles
+### For Packaging or Similar Workflows
 
-1. **Separate API clients**: Create `lib/packaging-api.ts` (mirroring `lib/product-api.ts`).
-2. **Separate types**: Define `lib/packaging-types.ts` for packaging-specific state.
-3. **Separate cache namespace**: If caching assets, use a different `CACHE_NAME` (e.g., `"packaging-models"`).
-4. **Shared UI components**: Reuse `<ModelViewer>`, but pass packaging-specific URLs/state via props.
+The product viewer pattern is **fully decoupled and reusable**. To implement a similar flow:
 
-### Extending the Pattern
+#### 1. Backend Setup
+- Create separate Redis key: `packaging:current` (or `packaging:{session_id}`).
+- Define `PackagingState` with `iterations[]` similar to `ProductState`.
+- Ensure each iteration has a stable, unique `id` field.
+- Generate IDs at creation time, not via Pydantic defaults.
 
-If packaging needs similar create/edit/rewind functionality:
+#### 2. Frontend API Client
+- Create `lib/packaging-api.ts` with:
+  ```typescript
+  export async function createPackaging(...)
+  export async function editPackaging(...)
+  export async function getPackagingState()
+  export async function getPackagingStatus()
+  ```
+- Keep completely separate from `product-api.ts`.
 
-1. **Backend**: Implement a parallel Redis key (e.g., `packaging:current`) with its own state schema.
-2. **Frontend hydration**: Follow the same pattern as product page:
-   - Fetch state on mount.
-   - Extract latest iteration.
-   - Call caching helper (create `getPackagingCachedModel` if artifact types differ).
-   - Pass stable URLs to the viewer.
+#### 3. Frontend Cache
+- **Option A**: Share `model-cache.ts` if GLBs are the same type.
+- **Option B**: Create `packaging-cache.ts` with different `CACHE_NAME` if asset types differ (textures, dielines, etc.).
 
-3. **History/rewind**: Same UI pattern (`AIChatPanel` already supports both modes via discriminated unions).
+#### 4. Page Hydration
+- Copy the hydration pattern from `app/product/page.tsx`:
+  ```typescript
+  const state = await getPackagingState();
+  const latestIteration = state.iterations.at(-1);
+  const assetUrl = await getCachedAssetUrl(latestIteration.id, remoteUrl);
+  setViewerUrl(assetUrl);
+  ```
 
-### Guidelines
+#### 5. Viewer Integration
+- Pass the asset URL to `<ModelViewer>` or a custom viewer component.
+- Same fade animation, same cache hit behavior.
 
-- **Keep assets out of Redis**: Store only URLs/metadata. Let the browser cache binaries.
-- **Use stable IDs**: Always derive cache keys from unique iteration IDs, not timestamps or mutable fields.
-- **Defer revocation**: Don't revoke blob URLs until the viewer confirms it's done with them (or use in-memory maps to avoid revocation entirely).
-- **Progressive enhancement**: Start with remote URLs, add caching as an optimization layer.
-- **Avoid premature abstractions**: Don't share state between product/packaging; keep them fully decoupled.
+### Key Isolation Points
 
-## Debugging
+**DO**:
+- Use separate API modules (`product-api.ts` vs `packaging-api.ts`).
+- Use separate Redis keys (`product:current` vs `packaging:current`).
+- Use discriminated union types if sharing UI components:
+  ```typescript
+  type AIChatPanelProps = ProductProps | PackagingProps;
+  ```
 
-Enable verbose logging:
-- `[Product]` - page-level hydration and cache operations
-- `[model-cache]` - CacheStorage reads/writes
-- `[ModelViewer]` - GLB loading and fade animation progress
+**DON'T**:
+- Share state between product and packaging (e.g., one Redis key for both).
+- Couple API calls (e.g., `/product/create` affecting packaging state).
+- Use mutable or timestamp-based IDs (always generate once at creation).
 
-Check console for:
-- `"Skipping hydration"` - confirms deduplication is working
-- `"Reusing in-memory blob URL"` - confirms no redundant object URLs
-- `"Fade progress: X%"` - confirms animation is running
+## Debugging Checklist
 
-If models don't appear:
-1. Check Network tab for failed GLB fetches.
-2. Verify blob URLs aren't revoked prematurely.
-3. Confirm `iteration.id` is stable across reloads.
+### Model doesn't load
+1. Check Network tab: Is the GLB fetch succeeding?
+2. Check console: Do you see `"[ModelViewer] GLB loaded successfully"`?
+3. Check `/product` response: Does `iterations[].id` stay stable across calls?
+4. Check Cache Storage (DevTools → Application → Cache Storage): Is `model_glb_iter_X` present?
+
+### Loading loop
+1. Check console: Are iteration IDs incrementing on every log?
+   - **YES** → Pydantic `default_factory` bug; move ID generation to pipeline.
+   - **NO** → Hydration deduplication failing; verify `latestIterationIdRef` logic.
+
+### Fade animation doesn't run
+1. Check console: Do you see `"Fade-in complete"`?
+   - **YES but no visual change** → Material opacity not updating; check `useEffect` dependencies.
+   - **NO** → `onLoad` not firing; check Suspense/error boundaries.
+
+### Model disappears on reload
+1. Check console: Do you see `"Reusing in-memory blob URL"`?
+   - **YES** → Cache is working; viewer might be unmounting.
+   - **NO** → Cache miss; check if Cache Storage was cleared or iteration ID changed.
+
+## Summary
+
+This architecture balances:
+- **Performance**: Instant reloads via Cache Storage + in-memory blob URLs.
+- **Simplicity**: No backend storage, no database, no S3. Just Redis metadata + browser cache.
+- **Robustness**: Stable IDs prevent infinite loops; deduplication prevents unnecessary fetches.
+- **UX**: Smooth fades, no loading spinners, previous model visible during transitions.
+
+The key insight: **Treat the blob URL as a derived, memoized value**—generate it once per iteration and reuse it everywhere. This eliminates an entire class of React re-render bugs while keeping the implementation minimal.
