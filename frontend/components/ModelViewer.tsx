@@ -62,13 +62,14 @@ function ModelLoader({
 function ModelLoaderWrapper({ url, wireframe }: { url: string; wireframe: boolean }) {
   const [opacity, setOpacity] = useState(0);
   const fadeFrameRef = useRef<number | null>(null);
-  const lastUrlRef = useRef<string | null>(null);
-  const hasLoadedRef = useRef(false);
+  const hasStartedRef = useRef(false);
+  const currentUrlRef = useRef(url);
 
+  // Reset animation state when URL changes
   useEffect(() => {
-    if (lastUrlRef.current !== url) {
-      lastUrlRef.current = url;
-      hasLoadedRef.current = false;
+    if (currentUrlRef.current !== url) {
+      currentUrlRef.current = url;
+      hasStartedRef.current = false;
       setOpacity(0);
       if (fadeFrameRef.current) {
         cancelAnimationFrame(fadeFrameRef.current);
@@ -77,9 +78,9 @@ function ModelLoaderWrapper({ url, wireframe }: { url: string; wireframe: boolea
     }
   }, [url]);
 
-  const handleLoaded = useCallback(() => {
-    if (hasLoadedRef.current) return;
-    hasLoadedRef.current = true;
+  const startFadeIn = useCallback(() => {
+    if (hasStartedRef.current) return;
+    hasStartedRef.current = true;
     
     const duration = 350;
     const start = performance.now();
@@ -95,6 +96,7 @@ function ModelLoaderWrapper({ url, wireframe }: { url: string; wireframe: boolea
     fadeFrameRef.current = requestAnimationFrame(animate);
   }, []);
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (fadeFrameRef.current) {
@@ -106,7 +108,7 @@ function ModelLoaderWrapper({ url, wireframe }: { url: string; wireframe: boolea
 
   return (
     <Suspense fallback={null}>
-      <ModelLoader url={url} wireframe={wireframe} opacity={opacity} onLoad={handleLoaded} />
+      <ModelLoader url={url} wireframe={wireframe} opacity={opacity} onLoad={startFadeIn} />
     </Suspense>
   );
 }

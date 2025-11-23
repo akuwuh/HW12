@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, memo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -26,9 +26,8 @@ function ProductPage() {
   const [zoomAction, setZoomAction] = useState<"in" | "out" | null>(null);
   const [autoRotate, setAutoRotate] = useState(true);
   const [isEditInProgress, setIsEditInProgress] = useState(false);
-
+  
   const latestIterationIdRef = useRef<string | null>(null);
-  const hasHydratedRef = useRef(false);
 
   const applyModelUrl = useCallback((url?: string, iterationId?: string) => {
     if (!url) return;
@@ -67,11 +66,6 @@ function ProductPage() {
   }, [applyModelUrl]);
 
   useEffect(() => {
-    if (hasHydratedRef.current) {
-      stopLoading();
-      return;
-    }
-    hasHydratedRef.current = true;
     hydrateProductState().finally(() => stopLoading());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -161,4 +155,4 @@ function ProductPage() {
   );
 }
 
-export default memo(ProductPage);
+export default ProductPage;
