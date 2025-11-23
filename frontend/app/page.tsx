@@ -85,7 +85,7 @@ export default function Home() {
     try {
   	  await createProduct(prompt.trim(), 1);
   	  await pollUntilComplete();
-  	  router.push("/product");
+      router.push("/product");
     } catch (error) {
       console.error("Generation failed:", error);
       setIsGenerating(false);

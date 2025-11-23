@@ -248,7 +248,7 @@ export function AIChatPanel({
                         )}
                       </div>
                     </div>
-                  </div>
+                </div>
                 );
               })}
           </div>

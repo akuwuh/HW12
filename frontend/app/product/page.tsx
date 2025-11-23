@@ -33,7 +33,24 @@ export default function ProductPage() {
       const state = await getProductState();
       setProductState(state);
       if (state.trellis_output?.model_file) {
-        setCurrentModelUrl(state.trellis_output.model_file);
+        const latestIteration = state.iterations.at(-1);
+        const cacheKey = latestIteration ? `model_cache_${latestIteration.created_at}` : null;
+
+        if (cacheKey && typeof window !== "undefined") {
+          const cachedUrl = localStorage.getItem(cacheKey);
+          const effectiveUrl = cachedUrl ?? state.trellis_output.model_file;
+          setCurrentModelUrl(effectiveUrl);
+
+          if (!cachedUrl) {
+            try {
+              localStorage.setItem(cacheKey, state.trellis_output.model_file);
+            } catch {
+              // Ignore storage exceptions (e.g., quota)
+            }
+          }
+        } else {
+          setCurrentModelUrl(state.trellis_output.model_file);
+        }
       }
     } catch (error) {
       console.error("Failed to load product state:", error);
@@ -67,10 +84,6 @@ export default function ProductPage() {
     { name: "Yellow", value: "#eab308" },
   ];
 
-  const placeholderImage =
-    productState?.trellis_output?.no_background_images?.[0] ??
-    productState?.images?.[0];
-
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden relative">
       <div className="flex-1 flex overflow-hidden">
@@ -85,7 +98,6 @@ export default function ProductPage() {
             wireframe={displayMode === "wireframe"}
             zoomAction={zoomAction}
             autoRotate={autoRotate}
-            placeholderImage={placeholderImage}
           />
 
           {/* Floating Controls */}
