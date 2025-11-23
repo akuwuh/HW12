@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Send, Download } from "lucide-react";
@@ -36,17 +36,17 @@ export default function FinalView() {
   };
 
   // Download options for each box
-  const leftDownloads = [
-    { name: `${objectName}.jpg`, extension: ".jpg" },
-    { name: `${objectName}.pdf`, extension: ".pdf" },
-    { name: `${objectName}.png`, extension: ".png" },
-    { name: `${objectName}.svg`, extension: ".svg" },
-  ];
+  const leftDownloads = useMemo(() => [
+    { name: `product.stl`, extension: ".stl" },
+    { name: `product.jpg`, extension: ".jpg" },
+    { name: `product.jpg`, extension: ".jpg" },
+    { name: `product.jpg`, extension: ".jpg" },
+  ], []);
 
-  const rightDownloads = [
-    { name: `${objectName}.stl`, extension: ".stl" },
-    { name: `${objectName}.obj`, extension: ".obj" },
-  ];
+  const rightDownloads = useMemo(() => [
+    { name: `dieline.jpg`, extension: ".jpg" },
+    { name: `package.jpg`, extension: ".jpg" },
+  ], []);
 
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
@@ -75,7 +75,7 @@ export default function FinalView() {
                   onClick={handleGenerate}
                   disabled={!environmentText.trim() || isGenerating}
                   size="icon"
-                  className="h-12 w-12 bg-primary text-primary-foreground border-2 border-black hover:bg-primary/90 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
+                  className="h-12 w-12 p-0 aspect-square bg-primary text-primary-foreground border-2 border-black hover:bg-primary/90 transition-all"
                 >
                   <Send className="w-4 h-4" />
                 </Button>
@@ -84,8 +84,8 @@ export default function FinalView() {
           </div>
 
           {/* Two Column Layout */}
-          <div className="flex-1 w-full p-8 overflow-auto">
-            <div className="max-w-7xl mx-auto h-full">
+          <div className="flex-1 w-full p-8 overflow-auto pb-32">
+            <div className="max-w-5xl mx-auto h-full">
               <div className="grid grid-cols-2 gap-8 h-full">
                 {/* Left Column */}
                 <div className="flex flex-col gap-4">
@@ -97,12 +97,13 @@ export default function FinalView() {
                   </div>
 
                   {/* Download Options - Fixed Height */}
-                  <div className="h-[250px] bg-background rounded-lg border-2 border-black shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] p-4">
-                    <h3 className="font-bold text-sm mb-3 border-b-2 border-black pb-2">2D Download Options</h3>
-                    <div className="space-y-2">
+                  <div className="h-[280px] bg-background rounded-lg border-2 border-black shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] px-4 pt-4 pb-12 mb-8">
+                    <h3 className="font-bold text-sm mb-3 border-b-2 border-black pb-2">Product</h3>
+                    <div className="space-y-2 mb-8">
                       {leftDownloads.map((download, idx) => (
                         <button
-                          key={idx}
+                          key={`${download.extension}-${idx}`}
+                          suppressHydrationWarning
                           className="w-full flex items-center justify-between gap-3 p-2 rounded-md border-2 border-black bg-card hover:bg-accent transition-all duration-200 hover:scale-[1.02] active:scale-95 group cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
                         >
                           <span className="text-sm font-medium truncate">{download.name}</span>
@@ -123,12 +124,13 @@ export default function FinalView() {
                   </div>
 
                   {/* Download Options - Fixed Height */}
-                  <div className="h-[250px] bg-background rounded-lg border-2 border-black shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] p-4">
-                    <h3 className="font-bold text-sm mb-3 border-b-2 border-black pb-2">3D Download Options</h3>
-                    <div className="space-y-2">
+                  <div className="h-[280px] bg-background rounded-lg border-2 border-black shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] px-4 pt-4 pb-12 mb-8">
+                    <h3 className="font-bold text-sm mb-3 border-b-2 border-black pb-2">Package</h3>
+                    <div className="space-y-2 mb-8">
                       {rightDownloads.map((download, idx) => (
                         <button
-                          key={idx}
+                          key={`${download.extension}-${idx}`}
+                          suppressHydrationWarning
                           className="w-full flex items-center justify-between gap-3 p-2 rounded-md border-2 border-black bg-card hover:bg-accent transition-all duration-200 hover:scale-[1.02] active:scale-95 group cursor-pointer shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
                         >
                           <span className="text-sm font-medium truncate">{download.name}</span>
