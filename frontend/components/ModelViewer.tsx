@@ -124,7 +124,6 @@ function ModelLoaderWrapper({
 
   useEffect(() => {
     if (lastUrlRef.current !== url) {
-      console.log(`[ModelViewer] New URL detected: ${url.substring(0, 60)}...`);
       lastUrlRef.current = url;
       hasLoadedRef.current = false;
       setOpacity(0);
@@ -136,12 +135,9 @@ function ModelLoaderWrapper({
   }, [url]);
 
   const handleLoaded = useCallback(() => {
-    if (hasLoadedRef.current) {
-      console.log(`[ModelViewer] Skipping duplicate onLoad for same URL`);
-      return;
-    }
+    if (hasLoadedRef.current) return;
     hasLoadedRef.current = true;
-    console.log(`[ModelViewer] GLB loaded successfully, starting fade-in animation`);
+    
     const duration = 350;
     const start = performance.now();
 
@@ -150,8 +146,6 @@ function ModelLoaderWrapper({
       setOpacity(progress);
       if (progress < 1) {
         fadeFrameRef.current = requestAnimationFrame(animate);
-      } else {
-        console.log(`[ModelViewer] Fade-in complete`);
       }
     };
 
@@ -224,6 +218,7 @@ export default function ModelViewer({
   const [contrast, setContrast] = useState(3.0);
   const [exposure, setExposure] = useState(2.0);
   const [showColor, setShowColor] = useState(true);
+
 
   // Handle zoom actions
   useEffect(() => {

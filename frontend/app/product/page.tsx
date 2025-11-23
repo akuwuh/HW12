@@ -22,6 +22,7 @@ export default function ProductPage() {
   const [productState, setProductState] = useState<ProductState | null>(null);
   const [currentModelUrl, setCurrentModelUrl] = useState<string>();
   const latestIterationIdRef = useRef<string | null>(null);
+  const hasHydratedRef = useRef(false);
   const [selectedColor, setSelectedColor] = useState("#60a5fa");
   const [selectedTexture, setSelectedTexture] = useState("matte");
   const [lightingMode, setLightingMode] = useState<"studio" | "sunset" | "warehouse" | "forest">("studio");
@@ -31,11 +32,7 @@ export default function ProductPage() {
   const [isEditInProgress, setIsEditInProgress] = useState(false);
 
   const applyModelUrl = useCallback((url?: string, iterationId?: string) => {
-    if (!url) {
-      console.log("[Product] applyModelUrl called with no URL, skipping");
-      return;
-    }
-    console.log(`[Product] applyModelUrl: ${url.substring(0, 60)}... for iteration: ${iterationId}`);
+    if (!url) return;
     setCurrentModelUrl(url);
     if (iterationId) {
       latestIterationIdRef.current = iterationId;
@@ -46,42 +43,43 @@ export default function ProductPage() {
   const hydrateProductState = useCallback(async () => {
     try {
       const state = await getProductState();
-      setProductState(state);
       const latestIteration = state.iterations.at(-1);
+      const iterationId = latestIteration?.id;
+      
+      // Early exit if we're already showing this iteration
+      if (iterationId && latestIterationIdRef.current === iterationId) {
+        setProductState(state); // Still update state for UI
+        return;
+      }
+      
+      setProductState(state);
       const remoteModelUrl = state.trellis_output?.model_file;
-      if (latestIteration && remoteModelUrl) {
-        const iterationId = latestIteration.id;
-        // Skip if we already have this exact iteration loaded
-        if (latestIterationIdRef.current === iterationId && currentModelUrl) {
-          console.log(`[Product] Skipping hydration - already showing iteration ${iterationId}`);
-          return;
-        }
-        console.log(`[Product] Loading iteration ${iterationId}, current: ${latestIterationIdRef.current}`);
+      
+      if (latestIteration && remoteModelUrl && iterationId) {
         try {
           const cachedUrl = await getCachedModelUrl(iterationId, remoteModelUrl);
-          console.log(`[Product] Got blob URL: ${cachedUrl.substring(0, 60)}...`);
           applyModelUrl(cachedUrl, iterationId);
         } catch (cacheError) {
-          console.error("Model cache fetch failed, using remote URL:", cacheError);
+          console.error("Model cache failed:", cacheError);
           applyModelUrl(remoteModelUrl, iterationId);
         }
       }
     } catch (error) {
       console.error("Failed to load product state:", error);
     }
-  }, [applyModelUrl, currentModelUrl]);
+  }, [applyModelUrl]);
 
   useEffect(() => {
-    let isMounted = true;
-    hydrateProductState().finally(() => {
-      if (isMounted) {
-        stopLoading();
-      }
-    });
-    return () => {
-      isMounted = false;
-    };
-  }, [hydrateProductState, stopLoading]);
+    if (hasHydratedRef.current) {
+      stopLoading();
+      return;
+    }
+    
+    hasHydratedRef.current = true;
+    hydrateProductState().finally(() => stopLoading());
+    
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Reset zoom action after it's been processed
   useEffect(() => {
