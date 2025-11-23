@@ -38,6 +38,17 @@ export async function getPackagingStatus(): Promise<PackagingStatus> {
   return handleResponse<PackagingStatus>(response);
 }
 
+export async function resetCurrentShape(): Promise<{
+  message: string;
+  package_type: string;
+  dimensions: Record<string, number>;
+}> {
+  const response = await fetch(`${API_BASE}/packaging/reset-current-shape`, {
+    method: "POST",
+  });
+  return handleResponse(response);
+}
+
 export async function clearPackagingState(): Promise<void> {
   const response = await fetch(`${API_BASE}/packaging/clear`, {
     method: "POST",

@@ -107,21 +107,24 @@ USER CUSTOMIZATION
 {user_prompt}
 """
 
-    # Iteration template (for editing existing designs with reference)
-    ITERATION_TEMPLATE = """Modify the attached panel design according to the user's request.
+    # Universal template for extracting panels from 3D mockup (both create and edit flows)
+    MOCKUP_EXTRACTION_TEMPLATE = """Extract the {face_name} panel design from the 3D product mockup.
 
 Panel: {face_name}
 Size: {panel_width_mm}mm × {panel_height_mm}mm
 Aspect Ratio: {aspect_ratio_lock} (maintain exactly)
 
-RULES:
-- Keep the exact aspect ratio and dimensions
-- Apply the user's requested changes to the reference image
-- Maintain design continuity and quality
-- Output flat, print-ready panel texture
+TASK:
+The 3D mockup shows the complete package design. Extract the {face_name} panel and create a flat, print-ready texture.
 
-USER REQUEST:
-{user_prompt}"""
+REQUIREMENTS:
+- Study the 3D mockup to see how the {face_name} panel looks
+- Extract that panel's design as a flat texture
+- Match the colors, graphics, and style from the mockup
+- Output at {aspect_ratio_lock} aspect ratio
+- Full-bleed design (extends to all edges)
+
+Generate a flat panel texture that matches what's shown on the {face_name} face of the mockup."""
 
     # Simple texture template (for basic requests without reference mockup)
     SIMPLE_TEMPLATE = """Generate a flat packaging panel texture with the following specifications:
@@ -429,26 +432,20 @@ OUTPUT: Generate exactly ONE flat panel texture at {aspect_ratio_lock} aspect ra
         
         return prompt
     
-    def build_iteration_prompt(
+    def build_mockup_extraction_prompt(
         self,
         face_name: str,
         panel_width_mm: float,
         panel_height_mm: float,
-        user_prompt: str,
     ) -> str:
-        """Build concise iteration prompt for editing existing designs."""
-        is_valid, error = self.validate_user_prompt(user_prompt)
-        if not is_valid:
-            raise ValueError(error)
-        
+        """Build prompt for extracting panels from 3D mockup (works for both create and edit flows)."""
         aspect_ratio = self.calculate_aspect_ratio(panel_width_mm, panel_height_mm)
         
-        return self.ITERATION_TEMPLATE.format(
+        return self.MOCKUP_EXTRACTION_TEMPLATE.format(
             face_name=face_name,
             panel_width_mm=int(panel_width_mm),
             panel_height_mm=int(panel_height_mm),
             aspect_ratio_lock=aspect_ratio,
-            user_prompt=user_prompt,
         )
 
 

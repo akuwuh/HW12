@@ -132,16 +132,17 @@ class PanelGenerationService:
         
         # Build appropriate prompt based on context
         try:
-            # For iteration (has reference), use concise iteration prompt
+            # If has reference (3D mockup), use extraction template (same for create and edit)
             if has_reference:
-                prompt = panel_prompt_builder.build_iteration_prompt(
+                # Both create and edit use the same extraction prompt
+                # The difference is in the 3D mockup generation (phase 1), not panel extraction (phase 2)
+                prompt = panel_prompt_builder.build_mockup_extraction_prompt(
                     face_name=panel_id,
                     panel_width_mm=panel_width,
                     panel_height_mm=panel_height,
-                    user_prompt=user_prompt,
                 )
             else:
-                # For creation, use simple prompt
+                # No reference, use simple prompt with full context
                 prompt = panel_prompt_builder.build_simple_prompt(
                     face_name=panel_id,
                     panel_width_mm=panel_width,
