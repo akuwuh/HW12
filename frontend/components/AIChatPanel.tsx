@@ -60,6 +60,13 @@ function ProductAIChatPanel({
   const [rewindTarget, setRewindTarget] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
 
+  const cleanStatusMessage = useCallback((message?: string) => {
+    if (!message) return "Generating model...";
+    let cleaned = message.replace(/progress:\s*/i, "");
+    cleaned = cleaned.replace(/\[[^\]]*\]/g, "").trim();
+    return cleaned || "Generating model...";
+  }, []);
+
   const suggestions = [
     "Make the model taller",
     "Change the color to blue",
@@ -218,7 +225,7 @@ function ProductAIChatPanel({
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 font-mono text-xs font-bold uppercase tracking-wide">
               <div className="w-3 h-3 border-2 border-black animate-spin" />
-              {editStatus.message || "Generating model..."}
+              {cleanStatusMessage(editStatus.message)}
             </div>
             <div className="font-mono text-sm font-bold tabular-nums">
               {formatElapsedTime(elapsedTime)}
@@ -226,9 +233,9 @@ function ProductAIChatPanel({
           </div>
           <div className="space-y-1">
             <div className="w-full h-6 border-2 border-black bg-white relative overflow-hidden">
-              <div
+            <div
                 className="h-full bg-black transition-all duration-500 relative"
-                style={{ width: `${Math.min(editStatus.progress || 0, 100)}%` }}
+              style={{ width: `${Math.min(editStatus.progress || 0, 100)}%` }}
               >
                 <div className="absolute inset-0 opacity-20" style={{
                   backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 2px, white 2px, white 4px)'
@@ -740,27 +747,27 @@ function PackagingAIChatPanel({
   return (
     <div className="space-y-3">
       {/* Prompt Input */}
-      <Textarea
+        <Textarea
         placeholder="Describe style, colors, patterns..."
-        value={prompt}
-        onChange={(e) => {
-          const newValue = e.target.value;
-          setPrompt(newValue);
-          // Validate immediately on change
-          validatePrompt(newValue);
-        }}
-        onBlur={(e) => {
-          // Re-validate on blur to catch any edge cases
-          validatePrompt(e.target.value);
-        }}
+          value={prompt}
+          onChange={(e) => {
+            const newValue = e.target.value;
+            setPrompt(newValue);
+            // Validate immediately on change
+            validatePrompt(newValue);
+          }}
+          onBlur={(e) => {
+            // Re-validate on blur to catch any edge cases
+            validatePrompt(e.target.value);
+          }}
         className={`min-h-[70px] resize-none text-sm ${
-          validationError ? "border-red-500 border-2 focus:border-red-600" : ""
-        }`}
+            validationError ? "border-red-500 border-2 focus:border-red-600" : ""
+          }`}
         disabled={isProcessing || bulkGenerating}
-      />
-      
-      {/* Validation error */}
-      {validationError && (
+        />
+        
+        {/* Validation error */}
+        {validationError && (
         <div className="text-xs text-red-600 dark:text-red-400 font-medium p-2 bg-red-50 dark:bg-red-950 rounded border-2 border-red-500">
           {validationError}
         </div>
@@ -768,14 +775,14 @@ function PackagingAIChatPanel({
       
       {/* Reference Upload */}
       <div className="flex items-center gap-2">
-        <input
-          type="file"
+                <input
+                  type="file"
           id="reference-upload"
-          accept="image/*"
-          onChange={handleMockupUpload}
+                  accept="image/*"
+                  onChange={handleMockupUpload}
           className="hidden"
           disabled={isProcessing || bulkGenerating}
-        />
+                />
         <label
           htmlFor="reference-upload"
           className={`text-xs font-semibold px-3 py-1.5 rounded border-2 border-black bg-background hover:bg-muted transition-colors cursor-pointer ${
@@ -784,19 +791,19 @@ function PackagingAIChatPanel({
         >
           Upload Reference
         </label>
-        {referenceMockup && (
+                {referenceMockup && (
           <>
             <span className="text-xs font-medium text-green-600">Loaded</span>
-            <button
-              onClick={() => setReferenceMockup(null)}
+                    <button
+                      onClick={() => setReferenceMockup(null)}
               className="text-xs font-semibold text-red-600 hover:underline"
-            >
-              Remove
-            </button>
+                    >
+                      Remove
+                    </button>
           </>
-        )}
-      </div>
-      
+          )}
+        </div>
+        
       {/* Action Buttons */}
       <div className="grid grid-cols-2 gap-2">
         <Button

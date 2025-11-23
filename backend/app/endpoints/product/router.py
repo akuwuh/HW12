@@ -31,8 +31,42 @@ class ProductEditRequest(BaseModel):
     prompt: str = Field(..., min_length=3, max_length=2000)
 
 
+def _has_active_tasks() -> bool:
+    return any(not task.done() for task in _background_tasks)
+
+
+def _auto_recover_if_needed(state: ProductState) -> bool:
+    """
+    If Redis says a generation is running but we have no active background tasks
+    (e.g. the server restarted or the worker crashed), clear the stale flag so
+    users can start a new run without manual intervention.
+    """
+    if not state.in_progress:
+        return False
+
+    if _has_active_tasks():
+        return False
+
+    logger.warning("[product-router] Auto-recovering stale in-progress state")
+    state.in_progress = False
+    state.status = "idle"
+    state.message = "Recovered from interrupted generation"
+    state.generation_started_at = None
+    save_product_state(state)
+
+    status_payload = ProductStatus(
+        status="idle",
+        progress=0,
+        message="Recovered from interrupted generation",
+    )
+    save_product_status(status_payload)
+    return True
+
+
 def _ensure_not_busy(state: ProductState) -> None:
     if state.in_progress:
+        if _auto_recover_if_needed(state):
+            return
         raise HTTPException(status_code=409, detail="Generation already running")
 
 
@@ -119,32 +153,12 @@ async def recover_state():
     """
     state = get_product_state()
     
-    # Check if there are any active background tasks
-    has_active_tasks = any(not task.done() for task in _background_tasks)
-    
-    if state.in_progress and not has_active_tasks:
-        logger.warning("[product-router] Recovering from stale in_progress state")
-        state.in_progress = False
-        state.status = "idle"
-        state.message = "Recovered from interrupted generation"
-        save_product_state(state)
-        
-        status_payload = ProductStatus(
-            status="idle",
-            progress=0,
-            message="Recovered from interrupted generation"
-        )
-        save_product_status(status_payload)
-        
-        return {
-            "recovered": True,
-            "message": "Cleared stale in_progress state"
-        }
-    
+    recovered = _auto_recover_if_needed(state)
+
     return {
-        "recovered": False,
+        "recovered": recovered,
         "in_progress": state.in_progress,
-        "has_active_tasks": has_active_tasks
+        "has_active_tasks": _has_active_tasks(),
     }
 
 

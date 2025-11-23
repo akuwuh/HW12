@@ -55,7 +55,7 @@ function ProductPage() {
       });
       
       // Always update product state
-      setProductState(state);
+        setProductState(state);
       
       // Check if state shows in_progress - if so, resume polling
       if (state.in_progress) {
