@@ -56,7 +56,7 @@ export function Header() {
             <div className="flex items-center gap-3 absolute left-4 top-1/2 -translate-y-1/2 z-10">
               <Link href="/" className="flex items-center gap-3">
                 <Boxes className="w-10 h-10 cursor-pointer" />
-                <span className={`text-3xl ${bungee.className} lowercase cursor-pointer`}>packing</span>
+                <span className={`text-3xl ${bungee.className} lowercase cursor-pointer`}>vril</span>
               </Link>
             </div>
             <div className="absolute right-4 top-1/2 -translate-y-1/2 z-0 flex items-center gap-3">

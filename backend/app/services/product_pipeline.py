@@ -103,7 +103,9 @@ class ProductPipelineService:
             trellis_output = await self._generate_trellis_model(images)
             artifacts = TrellisArtifacts.model_validate(trellis_output)
             duration_seconds = round(time.perf_counter() - flow_started_at, 2)
+            iteration_id = f"iter_{int(time.time() * 1000)}"
             iteration = ProductIteration(
+                id=iteration_id,
                 type=mode,
                 prompt=instruction,
                 images=images,

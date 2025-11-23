@@ -85,7 +85,7 @@ export default function Home() {
     try {
   	  await createProduct(prompt.trim(), 1);
   	  await pollUntilComplete();
-  	  router.push("/product");
+      router.push("/product");
     } catch (error) {
       console.error("Generation failed:", error);
       setIsGenerating(false);
@@ -202,7 +202,7 @@ export default function Home() {
       `}>
         <div className="flex items-center gap-3">
           <Boxes className="w-10 h-10" />
-          <span className={`text-3xl ${bungee.className} lowercase`}>packing</span>
+          <span className={`text-3xl ${bungee.className} lowercase`}>vril</span>
         </div>
       </div>
 

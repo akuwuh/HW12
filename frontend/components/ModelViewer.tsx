@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, Suspense, useEffect } from "react";
+import { useRef, useState, Suspense, useEffect, useCallback } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Environment, useGLTF } from "@react-three/drei";
 import { OrbitControls as OrbitControlsImpl } from "three-stdlib";
@@ -10,14 +10,12 @@ interface ModelViewerProps {
   modelUrl?: string;
   isLoading?: boolean;
   error?: string | null;
-  onModelLoaded?: (url: string) => void;
   selectedColor?: string;
   selectedTexture?: string;
   lightingMode?: "studio" | "sunset" | "warehouse" | "forest";
   wireframe?: boolean;
   zoomAction?: "in" | "out" | null;
   autoRotate?: boolean;
-  placeholderImage?: string;
 }
 
 function CubeModel({
@@ -55,50 +53,57 @@ function ModelLoader({
   url,
   wireframe,
   showColor,
+  opacity,
+  onLoad,
 }: {
   url: string;
   wireframe: boolean;
   showColor: boolean;
+  opacity: number;
+  onLoad?: () => void;
 }) {
   const { scene } = useGLTF(url);
 
   // Clone the scene to avoid modifying the original
   const clonedScene = scene.clone();
 
-  // Apply wireframe/texture mode to all meshes in the scene
-  clonedScene.traverse((child) => {
-    if (child instanceof THREE.Mesh) {
-      if (child.material) {
-        // Handle both single material and material arrays
-        const materials = Array.isArray(child.material) ? child.material : [child.material];
+  // Apply material updates reactively
+  useEffect(() => {
+    clonedScene.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        if (child.material) {
+          const materials = Array.isArray(child.material) ? child.material : [child.material];
 
-        materials.forEach((material) => {
-          if (material instanceof THREE.MeshStandardMaterial || material instanceof THREE.MeshPhysicalMaterial) {
-            material.wireframe = wireframe;
+          materials.forEach((material) => {
+            if (material instanceof THREE.MeshStandardMaterial || material instanceof THREE.MeshPhysicalMaterial) {
+              material.wireframe = wireframe;
 
-            if (wireframe) {
-              // Wireframe mode: emissive blue
-              material.emissive = new THREE.Color("#60a5fa");
-              material.emissiveIntensity = 0.2;
-              material.color = new THREE.Color("#60a5fa");
-            } else if (showColor) {
-              // Base texture mode: reset to original colors
-              material.emissive = new THREE.Color(0, 0, 0);
-              material.emissiveIntensity = 0;
-              // Keep original colors
-            } else {
-              // Default: blue tint
-              material.emissive = new THREE.Color("#60a5fa");
-              material.emissiveIntensity = 0.1;
-              material.color = new THREE.Color("#60a5fa");
+              if (wireframe) {
+                material.emissive = new THREE.Color("#60a5fa");
+                material.emissiveIntensity = 0.2;
+                material.color = new THREE.Color("#60a5fa");
+              } else if (showColor) {
+                material.emissive = new THREE.Color(0, 0, 0);
+                material.emissiveIntensity = 0;
+              } else {
+                material.emissive = new THREE.Color("#60a5fa");
+                material.emissiveIntensity = 0.1;
+                material.color = new THREE.Color("#60a5fa");
+              }
+
+              material.opacity = opacity;
+              material.transparent = opacity < 1;
+              material.needsUpdate = true;
             }
-
-            material.needsUpdate = true;
-          }
-        });
+          });
+        }
       }
-    }
-  });
+    });
+  }, [clonedScene, wireframe, showColor, opacity]);
+
+  useEffect(() => {
+    onLoad?.();
+  }, [onLoad]);
 
   return <primitive object={clonedScene} />;
 }
@@ -107,25 +112,69 @@ function ModelLoaderWrapper({
   url,
   wireframe,
   showColor,
-  onLoad,
-  onError,
 }: {
   url: string;
   wireframe: boolean;
   showColor: boolean;
-  onLoad?: () => void;
-  onError?: (error: Error) => void;
 }) {
+  const [opacity, setOpacity] = useState(0);
+  const fadeFrameRef = useRef<number | null>(null);
+  const lastUrlRef = useRef<string | null>(null);
+  const hasLoadedRef = useRef(false);
+
   useEffect(() => {
-    onLoad?.();
-  }, [url, onLoad]);
+    if (lastUrlRef.current !== url) {
+      console.log(`[ModelViewer] New URL detected: ${url.substring(0, 60)}...`);
+      lastUrlRef.current = url;
+      hasLoadedRef.current = false;
+      setOpacity(0);
+      if (fadeFrameRef.current) {
+        cancelAnimationFrame(fadeFrameRef.current);
+        fadeFrameRef.current = null;
+      }
+    }
+  }, [url]);
+
+  const handleLoaded = useCallback(() => {
+    if (hasLoadedRef.current) {
+      console.log(`[ModelViewer] Skipping duplicate onLoad for same URL`);
+      return;
+    }
+    hasLoadedRef.current = true;
+    console.log(`[ModelViewer] GLB loaded successfully, starting fade-in animation`);
+    const duration = 350;
+    const start = performance.now();
+
+    const animate = (now: number) => {
+      const progress = Math.min((now - start) / duration, 1);
+      setOpacity(progress);
+      if (progress < 1) {
+        fadeFrameRef.current = requestAnimationFrame(animate);
+      } else {
+        console.log(`[ModelViewer] Fade-in complete`);
+      }
+    };
+
+    fadeFrameRef.current = requestAnimationFrame(animate);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (fadeFrameRef.current) {
+        cancelAnimationFrame(fadeFrameRef.current);
+        fadeFrameRef.current = null;
+      }
+    };
+  }, []);
 
   return (
-    <Suspense fallback={<LoadingPlaceholder />}>
+    <Suspense fallback={null}>
       <ModelLoader
         url={url}
         wireframe={wireframe}
         showColor={showColor}
+        opacity={opacity}
+        onLoad={handleLoaded}
       />
     </Suspense>
   );
@@ -133,34 +182,6 @@ function ModelLoaderWrapper({
 
 function LoadingPlaceholder() {
   return null;
-}
-
-function LoadingSkeleton({ placeholderImage }: { placeholderImage?: string }) {
-  return (
-    <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
-      <div className="text-center space-y-4">
-        {placeholderImage ? (
-          <div className="relative mx-auto w-40 h-40 rounded-xl overflow-hidden border border-white/20 shadow-lg">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={placeholderImage}
-              alt="Preview placeholder"
-              className="w-full h-full object-cover"
-            />
-            <div className="absolute inset-0 bg-linear-to-b from-black/10 to-black/40" />
-          </div>
-        ) : (
-          <div className="mb-2">
-            <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          </div>
-        )}
-        <div>
-          <p className="text-blue-400 text-lg font-semibold mb-1">Loading 3D Model</p>
-          <p className="text-gray-400 text-sm">This may take a few moments...</p>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function ErrorDisplay({ message }: { message: string }) {
@@ -191,23 +212,18 @@ function ErrorDisplay({ message }: { message: string }) {
 
 export default function ModelViewer({
   modelUrl,
-  isLoading,
   error,
-  onModelLoaded,
   selectedColor,
   selectedTexture,
   lightingMode = "studio",
   wireframe = false,
   zoomAction,
   autoRotate = true,
-  placeholderImage,
 }: ModelViewerProps) {
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const [contrast, setContrast] = useState(3.0);
   const [exposure, setExposure] = useState(2.0);
   const [showColor, setShowColor] = useState(true);
-  const [isModelLoading, setIsModelLoading] = useState(false);
-  const [modelLoadError, setModelLoadError] = useState<string | null>(null);
 
   // Handle zoom actions
   useEffect(() => {
@@ -237,23 +253,8 @@ export default function ModelViewer({
     }
   }, [zoomAction]);
 
-  // Effect to handle model loading states
-  useEffect(() => {
-    if (modelUrl) {
-      setIsModelLoading(true);
-      setModelLoadError(null);
-    }
-  }, [modelUrl]);
-
-  // Determine content to render
-  let content;
-  if (isLoading || (modelUrl && isModelLoading)) {
-    content = <LoadingSkeleton placeholderImage={placeholderImage} />;
-  } else if (error || modelLoadError) {
-    const errorMessage = modelLoadError || error || 'Failed to load model';
-    content = <ErrorDisplay message={errorMessage} />;
-  } else {
-    content = (
+  return (
+    <div className="w-full h-full relative overflow-hidden">
       <Canvas
         camera={{ position: [2, 1.5, 3.5], fov: 50 }}
         gl={{
@@ -276,7 +277,7 @@ export default function ModelViewer({
           />
         </mesh>
 
-        <Suspense fallback={<LoadingPlaceholder />}>
+        <Suspense fallback={null}>
           {/* HDR Environment for PBR materials */}
           <Environment preset={lightingMode} background={false} />
 
@@ -289,26 +290,11 @@ export default function ModelViewer({
           />
           <directionalLight position={[-5, 3, -5]} intensity={0.3 * contrast} />
 
-          {modelUrl ? (
+          {modelUrl && (
             <ModelLoaderWrapper
               url={modelUrl}
               wireframe={wireframe}
               showColor={showColor}
-              onLoad={() => {
-                setIsModelLoading(false);
-                setModelLoadError(null);
-              }}
-              onError={(error) => {
-                setIsModelLoading(false);
-                setModelLoadError(error.message);
-              }}
-            />
-          ) : (
-            <CubeModel
-              wireframe={wireframe}
-              showColor={showColor}
-              color={selectedColor}
-              texture={selectedTexture}
             />
           )}
 
@@ -323,13 +309,8 @@ export default function ModelViewer({
           />
         </Suspense>
       </Canvas>
-    );
-  }
 
-  return (
-    <div className="w-full h-full relative overflow-hidden">
-      {/* Main Content */}
-      {content}
+      {error && <ErrorDisplay message={error} />}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -15,11 +15,13 @@ import { AIChatPanel } from "@/components/AIChatPanel";
 import { useLoading } from "@/providers/LoadingProvider";
 import { getProductState } from "@/lib/product-api";
 import { ProductState } from "@/lib/product-types";
+import { getCachedModelUrl, clearCachedModel } from "@/lib/model-cache";
 
 export default function ProductPage() {
   const { stopLoading } = useLoading();
   const [productState, setProductState] = useState<ProductState | null>(null);
   const [currentModelUrl, setCurrentModelUrl] = useState<string>();
+  const latestIterationIdRef = useRef<string | null>(null);
   const [selectedColor, setSelectedColor] = useState("#60a5fa");
   const [selectedTexture, setSelectedTexture] = useState("matte");
   const [lightingMode, setLightingMode] = useState<"studio" | "sunset" | "warehouse" | "forest">("studio");
@@ -28,27 +30,58 @@ export default function ProductPage() {
   const [autoRotate, setAutoRotate] = useState(true);
   const [isEditInProgress, setIsEditInProgress] = useState(false);
 
+  const applyModelUrl = useCallback((url?: string, iterationId?: string) => {
+    if (!url) {
+      console.log("[Product] applyModelUrl called with no URL, skipping");
+      return;
+    }
+    console.log(`[Product] applyModelUrl: ${url.substring(0, 60)}... for iteration: ${iterationId}`);
+    setCurrentModelUrl(url);
+    if (iterationId) {
+      latestIterationIdRef.current = iterationId;
+    }
+  }, []);
+
+
   const hydrateProductState = useCallback(async () => {
     try {
       const state = await getProductState();
       setProductState(state);
-      if (state.trellis_output?.model_file) {
-        setCurrentModelUrl(state.trellis_output.model_file);
+      const latestIteration = state.iterations.at(-1);
+      const remoteModelUrl = state.trellis_output?.model_file;
+      if (latestIteration && remoteModelUrl) {
+        const iterationId = latestIteration.id;
+        // Skip if we already have this exact iteration loaded
+        if (latestIterationIdRef.current === iterationId && currentModelUrl) {
+          console.log(`[Product] Skipping hydration - already showing iteration ${iterationId}`);
+          return;
+        }
+        console.log(`[Product] Loading iteration ${iterationId}, current: ${latestIterationIdRef.current}`);
+        try {
+          const cachedUrl = await getCachedModelUrl(iterationId, remoteModelUrl);
+          console.log(`[Product] Got blob URL: ${cachedUrl.substring(0, 60)}...`);
+          applyModelUrl(cachedUrl, iterationId);
+        } catch (cacheError) {
+          console.error("Model cache fetch failed, using remote URL:", cacheError);
+          applyModelUrl(remoteModelUrl, iterationId);
+        }
       }
     } catch (error) {
       console.error("Failed to load product state:", error);
     }
-  }, []);
+  }, [applyModelUrl, currentModelUrl]);
 
   useEffect(() => {
-    hydrateProductState().finally(() => stopLoading());
+    let isMounted = true;
+    hydrateProductState().finally(() => {
+      if (isMounted) {
+        stopLoading();
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
   }, [hydrateProductState, stopLoading]);
-
-  useEffect(() => {
-    if (productState?.trellis_output?.model_file) {
-      setCurrentModelUrl(productState.trellis_output.model_file);
-    }
-  }, [productState?.trellis_output?.model_file]);
 
   // Reset zoom action after it's been processed
   useEffect(() => {
@@ -67,10 +100,6 @@ export default function ProductPage() {
     { name: "Yellow", value: "#eab308" },
   ];
 
-  const placeholderImage =
-    productState?.trellis_output?.no_background_images?.[0] ??
-    productState?.images?.[0];
-
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden relative">
       <div className="flex-1 flex overflow-hidden">
@@ -78,14 +107,12 @@ export default function ProductPage() {
         <div className="flex-1 relative bg-muted/30">
           <ModelViewer
             modelUrl={currentModelUrl}
-            onModelLoaded={setCurrentModelUrl}
             selectedColor={selectedColor}
             selectedTexture={selectedTexture}
             lightingMode={lightingMode}
             wireframe={displayMode === "wireframe"}
             zoomAction={zoomAction}
             autoRotate={autoRotate}
-            placeholderImage={placeholderImage}
           />
 
           {/* Floating Controls */}
