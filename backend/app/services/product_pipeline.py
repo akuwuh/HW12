@@ -79,8 +79,9 @@ class ProductPipelineService:
             state.images = images
             save_product_state(state)
             
-            # Save Gemini images to artifacts for inspection
-            self._save_gemini_images(images, mode)
+            # Save Gemini images to artifacts for inspection (test mode only)
+            if settings.SAVE_ARTIFACTS_LOCALLY:
+                self._save_gemini_images(images, mode)
 
             state.mark_progress("generating_model", "Generating 3D model with Trellis")
             save_product_state(state)
@@ -102,8 +103,9 @@ class ProductPipelineService:
             state.mark_complete("3D asset generated")
             save_product_state(state)
             
-            # Save Trellis GLB model to artifacts
-            self._save_trellis_model(artifacts, mode)
+            # Save Trellis GLB model to artifacts (test mode only)
+            if settings.SAVE_ARTIFACTS_LOCALLY:
+                self._save_trellis_model(artifacts, mode)
 
             preview = self._determine_preview_image(state)
             self._update_status(
@@ -156,7 +158,11 @@ class ProductPipelineService:
         save_product_status(payload)
 
     def _save_gemini_images(self, images: List[str], mode: str) -> None:
-        """Save Gemini-generated images to artifacts for inspection."""
+        """Save Gemini-generated images to filesystem for test inspection.
+        
+        Note: In normal operation, images are already stored in Redis as base64
+        data URLs in ProductState.images. This method is for debugging only.
+        """
         try:
             run_dir = ARTIFACTS_DIR / f"gemini_{mode}_{int(time.time())}"
             run_dir.mkdir(parents=True, exist_ok=True)
@@ -180,7 +186,11 @@ class ProductPipelineService:
             logger.warning(f"[product-pipeline] Failed to create artifacts dir: {exc}")
 
     def _save_trellis_model(self, artifacts: TrellisArtifacts, mode: str) -> None:
-        """Download and save Trellis GLB model to artifacts."""
+        """Download and save Trellis artifacts to filesystem for test inspection.
+        
+        Note: In normal operation, Trellis URLs are already stored in Redis via
+        ProductState.trellis_output. This method downloads and saves for debugging.
+        """
         try:
             if not artifacts.model_file:
                 logger.warning("[product-pipeline] No model_file to save")
