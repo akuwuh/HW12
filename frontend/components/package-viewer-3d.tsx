@@ -78,8 +78,8 @@ function BoxPackage3D({
         textureLoader.load(
           textureUrl,
           (texture) => {
-            // Disable texture flipping
-            texture.flipY = false
+            // Enable texture flipping for correct orientation
+            texture.flipY = true
             
             // Use ClampToEdge to prevent border artifacts
             texture.wrapS = THREE.ClampToEdgeWrapping
@@ -202,8 +202,9 @@ function CylinderPackage3D({
       textureLoader.load(
         bodyTexture,
         (texture) => {
-          texture.flipY = false
-          texture.wrapS = THREE.ClampToEdgeWrapping
+          texture.flipY = true
+          // Use RepeatWrapping for horizontal (S) to seamlessly wrap around cylinder
+          texture.wrapS = THREE.RepeatWrapping
           texture.wrapT = THREE.ClampToEdgeWrapping
           texture.minFilter = THREE.LinearFilter
           texture.magFilter = THREE.LinearFilter
@@ -249,7 +250,7 @@ function CylinderPackage3D({
       textureLoader.load(
         topTexture,
         (texture) => {
-          texture.flipY = false
+          texture.flipY = true
           texture.wrapS = THREE.ClampToEdgeWrapping
           texture.wrapT = THREE.ClampToEdgeWrapping
           texture.minFilter = THREE.LinearFilter
@@ -284,7 +285,7 @@ function CylinderPackage3D({
       textureLoader.load(
         bottomTexture,
         (texture) => {
-          texture.flipY = false
+          texture.flipY = true
           texture.wrapS = THREE.ClampToEdgeWrapping
           texture.wrapT = THREE.ClampToEdgeWrapping
           texture.minFilter = THREE.LinearFilter
