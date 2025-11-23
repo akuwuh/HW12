@@ -112,12 +112,27 @@ export function DielineEditor({
       })
     }
 
+    // Calculate overall bounding box to determine outer edges
+    let overallMinX = Number.POSITIVE_INFINITY
+    let overallMinY = Number.POSITIVE_INFINITY
+    let overallMaxX = Number.NEGATIVE_INFINITY
+    let overallMaxY = Number.NEGATIVE_INFINITY
+    
+    dielines.forEach((path) => {
+      path.points.forEach((point) => {
+        overallMinX = Math.min(overallMinX, point.x)
+        overallMinY = Math.min(overallMinY, point.y)
+        overallMaxX = Math.max(overallMaxX, point.x)
+        overallMaxY = Math.max(overallMaxY, point.y)
+      })
+    })
+
     // Draw all dieline paths
     dielines.forEach((path, pathIndex) => {
       const isSelected = panels
         ? panels.find((p) => p.dielinePathIndex === pathIndex)?.id === selectedPanelId
         : pathIndex === selectedPoint?.pathIndex
-      drawDielinePath(ctx, path, isSelected)
+      drawDielinePath(ctx, path, isSelected, overallMinX, overallMinY, overallMaxX, overallMaxY)
     })
 
     ctx.restore()
@@ -176,7 +191,111 @@ export function DielineEditor({
     ctx.fillText(panel.name, minX + width / 2, minY + height / 2)
   }
 
-  const drawDielinePath = (ctx: CanvasRenderingContext2D, path: DielinePath, isSelected: boolean) => {
+  const drawDimensionArc = (
+    ctx: CanvasRenderingContext2D,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    distance: number,
+    shapeCenterX?: number,
+    shapeCenterY?: number
+  ) => {
+    // Calculate midpoint
+    const midX = (x1 + x2) / 2
+    const midY = (y1 + y2) / 2
+
+    // Calculate perpendicular direction (rotate 90 degrees)
+    const dx = x2 - x1
+    const dy = y2 - y1
+    const length = Math.sqrt(dx * dx + dy * dy)
+    
+    if (length === 0) return
+
+    // Normalize and rotate 90 degrees to get perpendicular vector
+    // Two possible perpendicular directions: (-dy, dx) and (dy, -dx)
+    let perpX = -dy / length
+    let perpY = dx / length
+
+    // Determine which side is "outside" - point away from shape center
+    if (shapeCenterX !== undefined && shapeCenterY !== undefined) {
+      // Check if the perpendicular vector points away from center
+      const toCenterX = shapeCenterX - midX
+      const toCenterY = shapeCenterY - midY
+      const dotProduct = perpX * toCenterX + perpY * toCenterY
+      
+      // If dot product is positive, perpendicular points toward center, so flip it
+      if (dotProduct > 0) {
+        perpX = -perpX
+        perpY = -perpY
+      }
+    }
+
+    // Arc offset distance (perpendicular to edge, outside the shape)
+    // Make it more pronounced for rainbow effect
+    const arcOffset = 30 / scale
+    const arcHeight = Math.max(15 / scale, Math.min(length / 6, 25 / scale)) // Height of rainbow curve
+
+    // Extension line length (extend outward from edge)
+    const extensionLength = 8 / scale
+
+    // Calculate extension line endpoints (outside the edge)
+    const ext1X = x1 + perpX * extensionLength
+    const ext1Y = y1 + perpY * extensionLength
+    const ext2X = x2 + perpX * extensionLength
+    const ext2Y = y2 + perpY * extensionLength
+
+    // Draw extension lines from edge endpoints outward
+    ctx.beginPath()
+    ctx.moveTo(x1, y1)
+    ctx.lineTo(ext1X, ext1Y)
+    ctx.moveTo(x2, y2)
+    ctx.lineTo(ext2X, ext2Y)
+    ctx.strokeStyle = "rgba(107, 114, 128, 0.4)"
+    ctx.lineWidth = 0.5 / scale
+    ctx.setLineDash([3, 3])
+    ctx.stroke()
+    ctx.setLineDash([])
+
+    // Draw rainbow-shaped arc using quadratic curve for smooth arc
+    // Control point is at the peak of the rainbow (further out)
+    const controlX = midX + perpX * (arcOffset + arcHeight)
+    const controlY = midY + perpY * (arcOffset + arcHeight)
+
+    ctx.beginPath()
+    ctx.moveTo(ext1X, ext1Y)
+    ctx.quadraticCurveTo(controlX, controlY, ext2X, ext2Y)
+    ctx.strokeStyle = "rgba(107, 114, 128, 0.5)"
+    ctx.lineWidth = 0.8 / scale
+    ctx.stroke()
+
+    // Draw dimension text at the peak of the rainbow
+    const textX = controlX
+    const textY = controlY
+    const edgeAngle = Math.atan2(dy, dx)
+
+    ctx.save()
+    ctx.fillStyle = "rgba(55, 65, 81, 0.7)"
+    ctx.font = `${9 / scale}px sans-serif`
+    ctx.textAlign = "center"
+    ctx.textBaseline = "middle"
+    
+    // Position text at rainbow peak, rotated to be perpendicular to edge
+    ctx.translate(textX, textY)
+    ctx.rotate(edgeAngle + Math.PI / 2)
+    ctx.fillText(`${distance.toFixed(0)}`, 0, 0)
+    ctx.restore()
+  }
+
+  const drawDielinePath = (
+    ctx: CanvasRenderingContext2D,
+    path: DielinePath,
+    isSelected: boolean,
+    overallMinX: number,
+    overallMinY: number,
+    overallMaxX: number,
+    overallMaxY: number
+  ) => {
     if (path.points.length === 0) return
 
     ctx.beginPath()
@@ -205,6 +324,76 @@ export function DielineEditor({
     ctx.lineWidth = isSelected ? 2 : 1.5
     ctx.stroke()
     ctx.setLineDash([])
+
+    const points = path.points
+    
+    // Calculate shape center for determining outside direction
+    let shapeCenterX: number | undefined
+    let shapeCenterY: number | undefined
+    if (path.closed && points.length > 0) {
+      const sumX = points.reduce((sum, p) => sum + p.x, 0)
+      const sumY = points.reduce((sum, p) => sum + p.y, 0)
+      shapeCenterX = sumX / points.length
+      shapeCenterY = sumY / points.length
+    }
+    
+    // Helper to check if an edge is on the outer perimeter
+    const isOuterEdge = (x1: number, y1: number, x2: number, y2: number): boolean => {
+      const tolerance = 1 // Tolerance for floating point comparison
+      
+      // Check if edge is horizontal and on top or bottom boundary
+      const isHorizontal = Math.abs(y1 - y2) < tolerance
+      if (isHorizontal) {
+        const y = (y1 + y2) / 2
+        if (Math.abs(y - overallMinY) < tolerance || Math.abs(y - overallMaxY) < tolerance) {
+          // Check if edge spans within the bounding box horizontally
+          const minX = Math.min(x1, x2)
+          const maxX = Math.max(x1, x2)
+          return minX >= overallMinX - tolerance && maxX <= overallMaxX + tolerance
+        }
+      }
+      
+      // Check if edge is vertical and on left or right boundary
+      const isVertical = Math.abs(x1 - x2) < tolerance
+      if (isVertical) {
+        const x = (x1 + x2) / 2
+        if (Math.abs(x - overallMinX) < tolerance || Math.abs(x - overallMaxX) < tolerance) {
+          // Check if edge spans within the bounding box vertically
+          const minY = Math.min(y1, y2)
+          const maxY = Math.max(y1, y2)
+          return minY >= overallMinY - tolerance && maxY <= overallMaxY + tolerance
+        }
+      }
+      
+      return false
+    }
+    
+    // Draw dimension arcs only for outer perimeter edges
+    for (let i = 0; i < points.length; i++) {
+      const currentPoint = points[i]
+      const nextPoint = points[(i + 1) % points.length]
+      
+      // Only draw dimension if not the last point (unless path is closed)
+      if (i < points.length - 1 || path.closed) {
+        const dx = nextPoint.x - currentPoint.x
+        const dy = nextPoint.y - currentPoint.y
+        const distance = Math.sqrt(dx * dx + dy * dy)
+        
+        // Only draw dimension on outer edges and if edge is long enough
+        if (distance > 10 && isOuterEdge(currentPoint.x, currentPoint.y, nextPoint.x, nextPoint.y)) {
+          drawDimensionArc(
+            ctx,
+            currentPoint.x,
+            currentPoint.y,
+            nextPoint.x,
+            nextPoint.y,
+            distance,
+            shapeCenterX,
+            shapeCenterY
+          )
+        }
+      }
+    }
 
     // Draw points
     path.points.forEach((point, pointIndex) => {
@@ -408,63 +597,6 @@ export function DielineEditor({
         </div>
       </div>
 
-      {/* Toolbar */}
-      <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg border border-border p-2 flex items-center gap-1">
-        <button
-          onClick={() => {
-            // Add a new point at the center of the view
-            if (!dielines.length) return
-            const centerX = (-offset.x + 600) / scale
-            const centerY = (-offset.y + 400) / scale
-
-            const newDielines = [...dielines]
-            if (newDielines[0]) {
-              newDielines[0].points.push({
-                x: centerX,
-                y: centerY,
-                type: "corner"
-              })
-              onDielineChange?.(newDielines)
-            }
-          }}
-          className="px-3 py-1 text-sm bg-background hover:bg-muted rounded border border-border"
-          title="Add Point"
-        >
-          +
-        </button>
-        <button
-          onClick={() => {
-            // Remove selected point
-            if (!selectedPoint) return
-            const newDielines = [...dielines]
-            newDielines[selectedPoint.pathIndex].points.splice(selectedPoint.pointIndex, 1)
-            onDielineChange?.(newDielines)
-            setSelectedPoint(null)
-          }}
-          className="px-3 py-1 text-sm bg-background hover:bg-muted rounded border border-border disabled:opacity-50"
-          disabled={!selectedPoint}
-          title="Remove Point"
-        >
-          −
-        </button>
-        <button
-          onClick={() => {
-            // Export as SVG
-            const svgContent = generateSVG(dielines)
-            const blob = new Blob([svgContent], { type: 'image/svg+xml' })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = 'dieline.svg'
-            a.click()
-            URL.revokeObjectURL(url)
-          }}
-          className="px-3 py-1 text-sm bg-background hover:bg-muted rounded border border-border"
-          title="Export SVG"
-        >
-          💾
-        </button>
-      </div>
 
       {/* Controls */}
       <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm rounded-lg border border-border p-2 flex items-center gap-2">

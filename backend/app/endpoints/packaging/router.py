@@ -10,6 +10,7 @@ from app.models.packaging_state import (
     PanelTexture,
     get_packaging_state,
     save_packaging_state,
+    clear_packaging_state,
 )
 from app.services.panel_generation import panel_generation_service
 

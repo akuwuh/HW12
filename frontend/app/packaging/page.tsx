@@ -371,13 +371,20 @@ function Packaging() {
     return () => clearInterval(pollInterval);
   }, [isGenerating, packageType, packageModel]);
 
+  // Track if we should preserve manual dieline edits
+  const [hasManualDielineEdits, setHasManualDielineEdits] = useState(false);
+  
   useEffect(() => {
     // Skip if not yet hydrated (hydration handles model generation)
     if (!isHydrated) return;
     
     const newModel = generatePackageModel(packageType, dimensions);
+    
+    // If user manually edited dielines, we could preserve those edits here
+    // But for now, we'll always regenerate to match 3D model
     setPackageModel(newModel);
     setSelectedPanelId(null);
+    setHasManualDielineEdits(false); // Reset flag when dimensions change
   }, [packageType, dimensions.width, dimensions.height, dimensions.depth]);
   
   const handlePackageTypeChange = useCallback(async (type: PackageType) => {
@@ -482,6 +489,7 @@ function Packaging() {
       if (!prev) return prev;
       return updateModelFromDielines(prev, newDielines);
     });
+    setHasManualDielineEdits(true); // Mark that user has manually edited dielines
   }, []);
 
   const handleTextureGenerated = useCallback(async (panelId: PanelId, textureUrl: string) => {
@@ -545,6 +553,7 @@ function Packaging() {
           <div className="flex-1 overflow-hidden">
             {activeView === "2d" ? (
               <DielineEditor
+                key={`${packageType}-${dimensions.width}-${dimensions.height}-${dimensions.depth}`}
                 dielines={packageModel.dielines}
                 panels={packageModel.panels}
                 selectedPanelId={selectedPanelId}

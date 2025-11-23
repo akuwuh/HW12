@@ -1,8 +1,19 @@
+"use client"
+
 import { useState } from "react"
 import { API_ENDPOINTS } from "@/lib/api-config"
+import type { PanelId } from "@/lib/packaging-types"
 
-interface GenerateTextureRequest {
+export interface PanelTexture {
   panel_id: string
+  texture_url: string
+  prompt: string
+  dimensions?: { width: number; height: number }
+  generated_at?: string
+}
+
+export interface GenerateTextureRequest {
+  panel_id: PanelId
   prompt: string
   package_type: string
   panel_dimensions: { width: number; height: number }
@@ -10,19 +21,12 @@ interface GenerateTextureRequest {
   reference_mockup?: string
 }
 
-interface PanelTexture {
-  panel_id: string
-  texture_url: string
-  prompt: string
-  generated_at: string
-  dimensions?: { width: number; height: number }
-}
-
 export function usePanelTexture() {
-  const [generating, setGenerating] = useState<string | null>(null) // panel_id being generated
-  const [bulkGenerating, setBulkGenerating] = useState(false) // bulk generation in progress
-  const [generatingPanels, setGeneratingPanels] = useState<string[]>([]) // panels being generated in bulk
+  const [generating, setGenerating] = useState<string | null>(null)
+  const [bulkGenerating, setBulkGenerating] = useState(false)
+  const [generatingPanels, setGeneratingPanels] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+
 
   const generateTexture = async (request: GenerateTextureRequest): Promise<PanelTexture | null> => {
     console.log("[usePanelTexture] generateTexture called with:", request)
@@ -231,15 +235,11 @@ export function usePanelTexture() {
     try {
       const response = await fetch(API_ENDPOINTS.packaging.getTexture(panelId))
       if (response.ok) {
-        return (await response.json()) as PanelTexture
-      }
-      // 404 is expected if texture doesn't exist - don't log as error
-      // 202 means generation in progress - also expected
-      if (response.status === 404 || response.status === 202) {
+        return await response.json()
+      } else if (response.status === 404) {
+        console.warn(`[usePanelTexture] getTexture failed with status ${response.status} for panel ${panelId}`)
         return null
       }
-      // Other errors should be logged
-      console.warn(`[usePanelTexture] getTexture failed with status ${response.status} for panel ${panelId}`)
       return null
     } catch (error) {
       // Network errors should be logged
@@ -337,10 +337,9 @@ export function usePanelTexture() {
         if (stateResponse.ok) {
           const state = await stateResponse.json()
           
-          // If there's an error, stop polling
+          // Log errors but don't immediately fail - continue polling to see which panels succeeded
           if (state.last_error) {
-            console.error("[usePanelTexture] Backend error:", state.last_error)
-            throw new Error(state.last_error)
+            console.warn("[usePanelTexture] Backend reported error:", state.last_error, "- continuing to check for completed panels")
           }
           
           // If not generating anymore, do final check
@@ -435,14 +434,36 @@ export function usePanelTexture() {
       return
     }
 
-    // Timeout - but don't fail if we got some panels
+    // Check for any backend errors one more time
+    let finalError: string | null = null
+    try {
+      const stateResponse = await fetch(API_ENDPOINTS.packaging.getState)
+      if (stateResponse.ok) {
+        const state = await stateResponse.json()
+        if (state.last_error) {
+          finalError = state.last_error
+        }
+      }
+    } catch (err) {
+      // Ignore state check errors
+    }
+
+    // Timeout or partial completion - report what we got
+    const missing = panelIds.filter(id => !completedPanels.has(id))
+    
     if (completedPanels.size > 0) {
-      const missing = panelIds.filter(id => !completedPanels.has(id))
-      console.warn(`[usePanelTexture] Timeout: ${completedPanels.size}/${panelIds.length} panels completed. Missing: ${missing.join(', ')}`)
-      throw new Error(`Partial completion: ${completedPanels.size}/${panelIds.length} panels done. Missing: ${missing.join(', ')}`)
+      // Partial success - log warning but don't throw error
+      console.warn(`[usePanelTexture] Partial completion: ${completedPanels.size}/${panelIds.length} panels completed. Missing: ${missing.join(', ')}`)
+      if (finalError) {
+        console.warn(`[usePanelTexture] Backend error: ${finalError}`)
+      }
+      // Don't throw - allow partial success
+      return
     } else {
+      // Complete failure
       console.error("[usePanelTexture] Timeout: no panels completed")
-      throw new Error("Texture generation timeout - no panels completed")
+      const errorMsg = finalError || "Texture generation timeout - no panels completed"
+      throw new Error(errorMsg)
     }
   }
 
@@ -457,4 +478,3 @@ export function usePanelTexture() {
     error,
   }
 }
-
