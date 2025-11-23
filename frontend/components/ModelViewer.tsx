@@ -10,7 +10,6 @@ interface ModelViewerProps {
   modelUrl?: string;
   isLoading?: boolean;
   error?: string | null;
-  onModelLoaded?: (url: string) => void;
   selectedColor?: string;
   selectedTexture?: string;
   lightingMode?: "studio" | "sunset" | "warehouse" | "forest";
@@ -113,17 +112,16 @@ function ModelLoaderWrapper({
   url,
   wireframe,
   showColor,
-  onLoad,
 }: {
   url: string;
   wireframe: boolean;
   showColor: boolean;
-  onLoad?: () => void;
 }) {
   const [opacity, setOpacity] = useState(0);
   const fadeFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
+    console.log(`[ModelViewer] New URL detected: ${url.substring(0, 60)}...`);
     setOpacity(0);
     if (fadeFrameRef.current) {
       cancelAnimationFrame(fadeFrameRef.current);
@@ -132,20 +130,23 @@ function ModelLoaderWrapper({
   }, [url]);
 
   const handleLoaded = useCallback(() => {
-    onLoad?.();
+    console.log(`[ModelViewer] GLB loaded successfully, starting fade-in animation`);
     const duration = 350;
     const start = performance.now();
 
     const animate = (now: number) => {
       const progress = Math.min((now - start) / duration, 1);
       setOpacity(progress);
+      console.log(`[ModelViewer] Fade progress: ${(progress * 100).toFixed(1)}% (opacity: ${progress.toFixed(2)})`);
       if (progress < 1) {
         fadeFrameRef.current = requestAnimationFrame(animate);
+      } else {
+        console.log(`[ModelViewer] Fade-in complete`);
       }
     };
 
     fadeFrameRef.current = requestAnimationFrame(animate);
-  }, [onLoad]);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -202,7 +203,6 @@ function ErrorDisplay({ message }: { message: string }) {
 export default function ModelViewer({
   modelUrl,
   error,
-  onModelLoaded,
   selectedColor,
   selectedTexture,
   lightingMode = "studio",
@@ -214,11 +214,6 @@ export default function ModelViewer({
   const [contrast, setContrast] = useState(3.0);
   const [exposure, setExposure] = useState(2.0);
   const [showColor, setShowColor] = useState(true);
-  const handleModelLoaded = useCallback(() => {
-    if (modelUrl && onModelLoaded) {
-      onModelLoaded(modelUrl);
-    }
-  }, [modelUrl, onModelLoaded]);
 
   // Handle zoom actions
   useEffect(() => {
@@ -290,7 +285,6 @@ export default function ModelViewer({
               url={modelUrl}
               wireframe={wireframe}
               showColor={showColor}
-              onLoad={handleModelLoaded}
             />
           )}
 

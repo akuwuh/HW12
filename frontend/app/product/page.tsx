@@ -22,8 +22,6 @@ export default function ProductPage() {
   const [productState, setProductState] = useState<ProductState | null>(null);
   const [currentModelUrl, setCurrentModelUrl] = useState<string>();
   const latestIterationIdRef = useRef<string | null>(null);
-  const objectUrlRef = useRef<string | null>(null);
-  const pendingRevokeRef = useRef<string[]>([]);
   const [selectedColor, setSelectedColor] = useState("#60a5fa");
   const [selectedTexture, setSelectedTexture] = useState("matte");
   const [lightingMode, setLightingMode] = useState<"studio" | "sunset" | "warehouse" | "forest">("studio");
@@ -34,33 +32,16 @@ export default function ProductPage() {
 
   const applyModelUrl = useCallback((url?: string, iterationId?: string) => {
     if (!url) {
+      console.log("[Product] applyModelUrl called with no URL, skipping");
       return;
     }
-    if (
-      objectUrlRef.current &&
-      objectUrlRef.current !== url &&
-      objectUrlRef.current.startsWith("blob:")
-    ) {
-      pendingRevokeRef.current.push(objectUrlRef.current);
-    }
-    objectUrlRef.current = url.startsWith("blob:") ? url : null;
+    console.log(`[Product] applyModelUrl: ${url.substring(0, 60)}... for iteration: ${iterationId}`);
     setCurrentModelUrl(url);
     if (iterationId) {
       latestIterationIdRef.current = iterationId;
     }
   }, []);
 
-  const handleViewerModelLoaded = useCallback((loadedUrl: string) => {
-    // Revoke old blobs only after new model loads successfully
-    if (pendingRevokeRef.current.length > 0) {
-      pendingRevokeRef.current.forEach((blobUrl) => {
-        if (blobUrl.startsWith("blob:") && blobUrl !== loadedUrl) {
-          URL.revokeObjectURL(blobUrl);
-        }
-      });
-      pendingRevokeRef.current = [];
-    }
-  }, []);
 
   const hydrateProductState = useCallback(async () => {
     try {
@@ -69,16 +50,16 @@ export default function ProductPage() {
       const latestIteration = state.iterations.at(-1);
       const remoteModelUrl = state.trellis_output?.model_file;
       if (latestIteration && remoteModelUrl) {
-        const iterationId = latestIteration.created_at;
-        // Skip if we already have this exact iteration cached as a blob
-        if (
-          latestIterationIdRef.current === iterationId &&
-          objectUrlRef.current?.startsWith("blob:")
-        ) {
+        const iterationId = latestIteration.id;
+        // Skip if we already have this exact iteration loaded
+        if (latestIterationIdRef.current === iterationId && currentModelUrl) {
+          console.log(`[Product] Skipping hydration - already showing iteration ${iterationId}`);
           return;
         }
+        console.log(`[Product] Loading iteration ${iterationId}, current: ${latestIterationIdRef.current}`);
         try {
           const cachedUrl = await getCachedModelUrl(iterationId, remoteModelUrl);
+          console.log(`[Product] Got blob URL: ${cachedUrl.substring(0, 60)}...`);
           applyModelUrl(cachedUrl, iterationId);
         } catch (cacheError) {
           console.error("Model cache fetch failed, using remote URL:", cacheError);
@@ -88,7 +69,7 @@ export default function ProductPage() {
     } catch (error) {
       console.error("Failed to load product state:", error);
     }
-  }, [applyModelUrl]);
+  }, [applyModelUrl, currentModelUrl]);
 
   useEffect(() => {
     let isMounted = true;
@@ -99,16 +80,6 @@ export default function ProductPage() {
     });
     return () => {
       isMounted = false;
-      if (objectUrlRef.current && objectUrlRef.current.startsWith("blob:")) {
-        URL.revokeObjectURL(objectUrlRef.current);
-        objectUrlRef.current = null;
-      }
-      pendingRevokeRef.current.forEach((blobUrl) => {
-        if (blobUrl.startsWith("blob:")) {
-          URL.revokeObjectURL(blobUrl);
-        }
-      });
-      pendingRevokeRef.current = [];
     };
   }, [hydrateProductState, stopLoading]);
 
@@ -136,7 +107,6 @@ export default function ProductPage() {
         <div className="flex-1 relative bg-muted/30">
           <ModelViewer
             modelUrl={currentModelUrl}
-            onModelLoaded={handleViewerModelLoaded}
             selectedColor={selectedColor}
             selectedTexture={selectedTexture}
             lightingMode={lightingMode}

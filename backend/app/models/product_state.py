@@ -30,6 +30,7 @@ class TrellisArtifacts(BaseModel):
 class ProductIteration(BaseModel):
     """Historical record for each create/edit pass."""
 
+    id: str  # Must be set explicitly when creating
     type: Literal["create", "edit"] = "create"
     prompt: str
     images: List[str] = Field(default_factory=list)

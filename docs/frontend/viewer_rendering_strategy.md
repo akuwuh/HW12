@@ -1,61 +1,136 @@
-## Viewer Rendering & Caching Strategy
+# 3D Viewer Rendering & Caching Strategy
 
-This document describes how the product viewer streams 3D assets from the backend, hydrates them in the browser, and caches each iteration so reloads and rewinds feel instant. The same approach can be reused by other surfaces (e.g. packaging or future generators) to render Trellis/Gemini artifacts without touching the backend.
+## Overview
 
-### 1. Backend → Redis → Frontend data flow
+The product viewer implements a lightweight, persistent caching strategy that keeps generated 3D models instantly available across page reloads, edits, and rewinds—without requiring backend storage or complex state management.
 
-1. The FastAPI pipeline (`product_pipeline_service`) orchestrates Gemini → Trellis and persists the canonical state in Redis under:
-   - `product:current` – full `ProductState` JSON (prompt, iterations, Trellis artifacts, timestamps, etc.)
-   - `product_status:current` – lightweight status for polling progress/errors.
-2. Each successful create/edit writes a new `ProductIteration` entry that captures:
-   - `created_at` (used as the stable iteration id)
-   - Trellis artifacts (`model_file`, `no_background_images`, etc.)
-   - `duration_seconds` plus any metadata we want to surface in the UI.
-3. The frontend only needs Redis; no session ids or user-specific stores are required because there is a single in-memory session per run.
+## Architecture
 
-### 2. Hydration & optimistic UX
+### 1. State Storage (Redis)
 
-1. `/product` hydrates by calling `GET /product`, then immediately:
-   - Reads the latest iteration (`state.iterations.at(-1)`).
-   - Pulls the remote Trellis GLB URL (`state.trellis_output.model_file`).
-   - Requests a cached blob URL via `getCachedModelUrl(iterationId, remoteUrl)`.
-2. While the cache helper runs, the viewer keeps the previous model mounted (no spinner). When the blob resolves, the parent simply swaps the Viewer’s `modelUrl`, producing a fade-in effect rather than a blank state.
-3. `onEditStart` only toggles local UI (status card, progress bar). The actual GLB swap is deferred until the cached blob is ready, so edits “pop” in as soon as Trellis finishes.
+**Backend**: `ProductState` in Redis stores metadata only:
+- `iterations[]` - array of historical create/edit passes
+- Each `ProductIteration` contains:
+  - `id` - unique identifier (e.g., `iter_1234567890123`)
+  - `trellis_output.model_file` - signed Fal.ai URL to the GLB
+  - `duration_seconds` - how long generation took
+  - `prompt`, `type`, `created_at`, etc.
 
-### 3. Cache helper responsibilities (`frontend/lib/model-cache.ts`)
+**Key principle**: Redis never stores binary assets, only URLs and metadata.
 
-| Function | Purpose |
-| --- | --- |
-| `getCachedModelUrl(iterationId, remoteUrl)` | Checks `CacheStorage` (`product-models` namespace). If the iteration is cached, returns a blob URL immediately. Otherwise fetches the GLB, caches the `Response`, and returns a new blob URL. |
-| `clearCachedModel(iterationId)` | Drops stale entries (e.g. rewinding past iterations or clearing corrupt downloads). |
-| `clearAllModelCache()` | Convenience for nuking cache during local dev. |
+### 2. Client-Side GLB Cache
 
-Implementation notes:
-- Cache keys are small strings (`model_glb_<created_at>`). No binary data lives in Redux/localStorage.
-- Always revoke blob URLs when swapping models to avoid leaking object URLs across reloads (`URL.revokeObjectURL`).
-- Fetch with `credentials: "omit"` so signed fal.ai URLs are retrieved as simple anonymous HTTP requests.
+**Implementation**: `frontend/lib/model-cache.ts`
 
-### 4. Viewer responsibilities (`frontend/components/ModelViewer.tsx`)
+Uses browser `Cache Storage` + in-memory blob URL map:
 
-1. The canvas is always mounted; we never hide it with a loading overlay.
-2. `<ModelLoaderWrapper>` wraps the Drei `useGLTF` hook and fades materials from opacity 0 → 1 whenever the URL changes. This gives an instant transition even if the GLB comes from the cache.
-3. Any fatal load errors (e.g. corrupt blob) bubble up so the parent can clear the cache key and retry from the remote URL.
-4. Orbit controls, lighting, and wireframe toggles are stateful; swapping the model does not reset camera state unless the parent tells it to.
+```typescript
+// Persistent storage (survives refresh)
+Cache Storage: iteration.id → GLB blob
 
-### 5. Rewind & iteration hygiene
+// In-memory (resets on refresh, avoids duplicate blob URLs)
+Map<iterationId, blobURL>
+```
 
-1. When the user rewinds to an older iteration, the chat panel calls `clearCachedModel` for every discarded iteration and hydrates the retained one via `getCachedModelUrl`.
-2. The viewer receives the blob URL for the rewound iteration and renders it immediately—no network fetch.
-3. Because Redis still stores every iteration’s metadata, the frontend can always reconstruct context (prompt history, durations, Trellis thumbnails) even after clearing cache entries.
+**Flow**:
+1. `getCachedModelUrl(iterationId, remoteUrl)` checks the in-memory map first.
+   - If found: return existing blob URL (no new fetch, no new object URL).
+   - If not in memory but in Cache Storage: read blob, create object URL once, store in map.
+   - If nowhere: fetch from remote, store in Cache Storage, create object URL, store in map.
 
-### 6. Applying these patterns elsewhere
+2. Result: **Same iteration always returns the same blob URL string**, preventing React from re-rendering the viewer.
 
-Any feature that consumes Trellis or Gemini artifacts can reuse the exact same building blocks:
+### 3. Product Page Hydration
 
-- **Server contract:** Expose the artifact URL + iteration id in Redis (or any queryable store). The viewer only needs a stable string per iteration.
-- **Client hydration:** Use the cache helper before swapping models or textures, keeping the previous asset mounted until the new blob resolves.
-- **Blob lifecycle:** Revoke unused URLs, clear cache entries when iterations are discarded, and fall back to the remote URL if a cached blob fails to parse.
-- **Status-driven UX:** Keep the UI in “live” mode (canvas, controls, previous asset) while background jobs run; only update the asset when the backend reports `complete`.
+**File**: `frontend/app/product/page.tsx`
 
-Following these guidelines keeps the rendering stack fast, deterministic, and agnostic to the specific domain (product, packaging, textures, etc.) while still leaning on Redis as the single source of truth. The cache layer lives entirely in the browser, which means hackathon-friendly performance without touching the backend infrastructure.
+On mount or edit completion:
+1. Fetch `ProductState` from Redis via `/product`.
+2. Extract latest iteration ID and remote GLB URL.
+3. Call `getCachedModelUrl(iteration.id, remoteUrl)`.
+4. Pass the resulting blob URL to `<ModelViewer modelUrl={url} />`.
 
+**Deduplication**: If `latestIterationIdRef.current === iterationId && currentModelUrl` is already set, skip hydration entirely—no re-fetch, no re-render.
+
+### 4. Model Viewer Rendering
+
+**File**: `frontend/components/ModelViewer.tsx`
+
+Always keeps the canvas live:
+- No loading spinners or placeholder overlays.
+- When `modelUrl` changes, `useGLTF(url)` runs inside `<Suspense>`.
+- Once the GLB parses, a 350ms opacity fade animates the mesh from 0 → 1.
+- Materials are updated reactively in a `useEffect` to apply wireframe/color modes.
+
+**Key**: The URL prop remains stable for the same iteration (thanks to the in-memory cache), so React doesn't re-mount the model component.
+
+### 5. Edit & Rewind Flow
+
+**Edit**:
+1. User submits prompt via `AIChatPanel`.
+2. Backend runs Gemini → Trellis, creates new `ProductIteration` with unique `id`.
+3. Frontend polls `/product/status` until `complete`.
+4. Calls `hydrateProductState()` → fetches new GLB → caches it → swaps viewer to new blob URL.
+5. Fade animation plays as the new model loads.
+
+**Rewind**:
+1. User clicks "Rewind" on a past iteration.
+2. Backend truncates `iterations[]` and restores that iteration's assets.
+3. Frontend calls `clearCachedModel(staleIteration.id)` for all discarded iterations.
+4. Hydrates from the target iteration's cached blob (instant, no fetch).
+
+### 6. Performance Characteristics
+
+| Scenario | Network | Cache | Viewer Behavior |
+|----------|---------|-------|-----------------|
+| First load of iteration | Fetch GLB from Fal.ai | Store in Cache Storage | Fade in (350ms) |
+| Reload same iteration | None | Read from Cache Storage | Instant (blob URL reused) |
+| Switch to cached iteration | None | Read from Cache Storage | Instant swap |
+| New edit iteration | Fetch new GLB | Store new entry | Fade in while keeping old model visible |
+
+## Best Practices for Other Features (e.g., Packaging)
+
+### Isolation Principles
+
+1. **Separate API clients**: Create `lib/packaging-api.ts` (mirroring `lib/product-api.ts`).
+2. **Separate types**: Define `lib/packaging-types.ts` for packaging-specific state.
+3. **Separate cache namespace**: If caching assets, use a different `CACHE_NAME` (e.g., `"packaging-models"`).
+4. **Shared UI components**: Reuse `<ModelViewer>`, but pass packaging-specific URLs/state via props.
+
+### Extending the Pattern
+
+If packaging needs similar create/edit/rewind functionality:
+
+1. **Backend**: Implement a parallel Redis key (e.g., `packaging:current`) with its own state schema.
+2. **Frontend hydration**: Follow the same pattern as product page:
+   - Fetch state on mount.
+   - Extract latest iteration.
+   - Call caching helper (create `getPackagingCachedModel` if artifact types differ).
+   - Pass stable URLs to the viewer.
+
+3. **History/rewind**: Same UI pattern (`AIChatPanel` already supports both modes via discriminated unions).
+
+### Guidelines
+
+- **Keep assets out of Redis**: Store only URLs/metadata. Let the browser cache binaries.
+- **Use stable IDs**: Always derive cache keys from unique iteration IDs, not timestamps or mutable fields.
+- **Defer revocation**: Don't revoke blob URLs until the viewer confirms it's done with them (or use in-memory maps to avoid revocation entirely).
+- **Progressive enhancement**: Start with remote URLs, add caching as an optimization layer.
+- **Avoid premature abstractions**: Don't share state between product/packaging; keep them fully decoupled.
+
+## Debugging
+
+Enable verbose logging:
+- `[Product]` - page-level hydration and cache operations
+- `[model-cache]` - CacheStorage reads/writes
+- `[ModelViewer]` - GLB loading and fade animation progress
+
+Check console for:
+- `"Skipping hydration"` - confirms deduplication is working
+- `"Reusing in-memory blob URL"` - confirms no redundant object URLs
+- `"Fade progress: X%"` - confirms animation is running
+
+If models don't appear:
+1. Check Network tab for failed GLB fetches.
+2. Verify blob URLs aren't revoked prematurely.
+3. Confirm `iteration.id` is stable across reloads.

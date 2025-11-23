@@ -8,6 +8,7 @@ export interface TrellisArtifacts {
 }
 
 export interface ProductIteration {
+  id: string;
   type: "create" | "edit";
   prompt: string;
   images: string[];

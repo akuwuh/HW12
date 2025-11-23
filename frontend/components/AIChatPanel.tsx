@@ -157,7 +157,7 @@ function ProductAIChatPanel({
       await rewindProduct(iterationIndex);
       if (productState?.iterations?.length) {
         const staleIterations = productState.iterations.slice(iterationIndex + 1);
-        await Promise.all(staleIterations.map((iteration) => clearCachedModel(iteration.created_at)));
+        await Promise.all(staleIterations.map((iteration) => clearCachedModel(iteration.id)));
       }
       await onEditComplete();
     } catch (error) {
