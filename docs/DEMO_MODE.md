@@ -426,6 +426,11 @@ response under `backend/demo/<target>_trellis_result.json`, and updates
 `demo_fixtures.json` with the new `model_url` + `no_background_images`. This
 keeps your demo fixtures and regeneration workflow in sync.
 
+> **Production tip:** set `TRELLIS_ENABLE_MULTI_IMAGE=true` (and optionally
+`TRELLIS_MULTIIMAGE_ALGO=multidiffusion`) in `backend/.env` if you want the
+real pipeline to take advantage of these additional views. By default only
+the demo helper turns on multi-image mode.
+
 ## Method 2: Using curl Directly
 
 ### With a URL:

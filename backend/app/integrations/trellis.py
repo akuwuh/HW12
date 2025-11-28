@@ -99,12 +99,11 @@ class TrellisService:
                 "ss_guidance_strength": ss_guidance_strength,
                 "slat_sampling_steps": slat_sampling_steps,
                 "slat_guidance_strength": slat_guidance_strength,
+                "image_url": images[0],
             }
             if use_multi:
                 arguments["image_urls"] = images
                 arguments["multiimage_algo"] = multiimage_algo
-            else:
-                arguments["image_url"] = images[0]
             
             result = fal_client.subscribe(
                 "fal-ai/trellis",

@@ -1,0 +1,1 @@
+INFO:     192.168.65.1:34361 - "POST /trellis/generate HTTP/1.1" 500 Internal Server Error
