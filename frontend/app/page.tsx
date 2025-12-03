@@ -32,7 +32,7 @@ export default function Home() {
   const [currentProductIndex, setCurrentProductIndex] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
 
-  const productIdeas = ["Lego", "ball", "hat", "mug", "chair", "pillow", "labubu"];
+  const productIdeas = ["Labubu", "Lego", "ball", "hat", "mug", "chair", "pillow"];
 
   useEffect(() => {
     // Measure all paths
@@ -101,17 +101,20 @@ export default function Home() {
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          if (e.target?.result) {
-            setImages(prev => [...prev, e.target!.result as string]);
-          }
-        };
-        reader.readAsDataURL(file);
-      }
+    if (e.target.files && e.target.files.length > 0) {
+      Array.from(e.target.files).forEach(file => {
+        if (file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            if (event.target?.result) {
+              setImages(prev => [...prev, event.target!.result as string]);
+            }
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+      // Reset input so the same files can be selected again
+      e.target.value = '';
     }
   };
 
@@ -290,6 +293,7 @@ export default function Home() {
                   onChange={handleFileSelect}
                   className="hidden" 
                   accept="image/*"
+                  multiple
                 />
                 <Button 
                   variant="outline" 

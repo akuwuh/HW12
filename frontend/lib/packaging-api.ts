@@ -1,6 +1,15 @@
 import { PackagingState, PackagingStatus, PackageType, PackageDimensions } from "@/lib/packaging-types";
+import { 
+  isDemoMode, 
+  getDemoPackagingStateEmpty, 
+  getDemoPackagingStateWithTextures,
+  isDemoPackagingGenerated,
+  setDemoPackagingGenerated,
+  resetDemoPackaging,
+} from "@/lib/demo-fixtures";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const DEMO_FRONTEND = process.env.NEXT_PUBLIC_DEMO_MODE === "frontend";
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -17,6 +26,14 @@ async function handleResponse<T>(response: Response): Promise<T> {
 }
 
 export async function getPackagingState(): Promise<PackagingState> {
+  // Demo mode: return empty or loaded state based on generation status
+  if (DEMO_FRONTEND) {
+    if (isDemoPackagingGenerated()) {
+      return getDemoPackagingStateWithTextures();
+    }
+    return getDemoPackagingStateEmpty();
+  }
+  
   const response = await fetch(`${API_BASE}/packaging/state`);
   return handleResponse<PackagingState>(response);
 }
@@ -25,6 +42,11 @@ export async function updatePackagingDimensions(
   packageType: PackageType,
   dimensions: PackageDimensions
 ): Promise<void> {
+  // Demo mode: no-op for dimension updates
+  if (DEMO_FRONTEND) {
+    return;
+  }
+  
   const response = await fetch(`${API_BASE}/packaging/update-dimensions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -43,6 +65,16 @@ export async function resetCurrentShape(): Promise<{
   package_type: string;
   dimensions: Record<string, number>;
 }> {
+  // Demo mode: reset the demo packaging state
+  if (DEMO_FRONTEND) {
+    resetDemoPackaging();
+    return {
+      message: "Demo packaging reset",
+      package_type: "box",
+      dimensions: { width: 100, height: 150, depth: 100 },
+    };
+  }
+  
   const response = await fetch(`${API_BASE}/packaging/reset-current-shape`, {
     method: "POST",
   });
@@ -86,5 +118,28 @@ export async function downloadDielineExport(format: "pdf"): Promise<Blob> {
     throw new Error(errorData.detail || `Request failed with status ${response.status}`);
   }
   return response.blob();
+}
+
+/**
+ * Demo mode: Simulate generating all panels with mock loading.
+ * Returns a promise that resolves after the mock delay.
+ */
+export async function demoGenerateAllPanels(): Promise<void> {
+  if (!DEMO_FRONTEND) {
+    throw new Error("demoGenerateAllPanels should only be called in demo mode");
+  }
+  
+  // Simulate loading delay (3 seconds)
+  await new Promise(resolve => setTimeout(resolve, 3000));
+  
+  // Mark as generated
+  setDemoPackagingGenerated(true);
+}
+
+/**
+ * Check if running in frontend demo mode
+ */
+export function isPackagingDemoMode(): boolean {
+  return DEMO_FRONTEND;
 }
 

@@ -477,6 +477,54 @@ function PackagingAIChatPanel({
     }
 
     setIsProcessing(true);
+    
+    // DEMO MODE: Use mock generation
+    const { isPackagingDemoMode, demoGenerateAllPanels } = await import("@/lib/packaging-api");
+    if (isPackagingDemoMode()) {
+      console.log("[AIChatPanel] Demo mode: Starting mock generation...");
+      onGenerationStart?.();
+      
+      try {
+        await demoGenerateAllPanels();
+        
+        // Demo textures loaded - notify parent for each panel
+        const demoTextures: Record<string, string> = {
+          front: "/demo_pkg_front.jpg",
+          back: "/demo_pkg_back.jpg",
+          left: "/demo_pkg_left.jpg",
+          right: "/demo_pkg_right.jpg",
+          top: "/demo_pkg_top.jpg",
+          bottom: "/demo_pkg_bottom.jpg",
+        };
+        
+        for (const [panelId, textureUrl] of Object.entries(demoTextures)) {
+          if (packageModel.panels.some(p => p.id === panelId)) {
+            onTextureGenerated?.(panelId as PanelId, textureUrl);
+          }
+        }
+        
+        setHistory([
+          ...history,
+          {
+            prompt,
+            response: `Successfully generated textures for all ${packageModel.panels.length} panels!`,
+          },
+        ]);
+      } catch (err) {
+        setHistory([
+          ...history,
+          {
+            prompt,
+            response: "Demo generation failed.",
+          },
+        ]);
+      } finally {
+        setPrompt("");
+        setIsProcessing(false);
+      }
+      return;
+    }
+
     console.log("[AIChatPanel] Starting bulk texture generation...");
 
     try {
